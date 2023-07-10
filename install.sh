@@ -22,7 +22,9 @@ mkdir /mnt/boot
 mount /dev/sda1 /mnt/boot
 
 # Install essential packages
-pacstrap /mnt base linux linux-firmware vim net-tools wget curl
+echo 'Server = https://mirrors.tuna.tsinghua.edu.cn/archlinux/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+pacman -Sy archlinux-keyring
+pacstrap /mnt base base-devel  linux linux-firmware vim net-tools wget curl dhcpcd net-tools man openssh 
 
 # Fstab
 genfstab -U /mnt >> /mnt/etc/fstab
