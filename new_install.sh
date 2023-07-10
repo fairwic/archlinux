@@ -35,8 +35,9 @@ mount /dev/sda1 /mnt/boot
 mkdir /mnt/home
 mount /dev/sda4 /mnt/home
 
+echo 'Server = https://mirrors.tuna.tsinghua.edu.cn/archlinux/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+pacman -Sy archlinux-keyring
 pacman -Syy
-
 pacstrap /mnt base linux linux-firmware vim git
 
 genfstab -U /mnt >> /mnt/etc/fstab
@@ -56,6 +57,9 @@ cat>>/etc/hosts<<EOF
 ::1	    	test
 127.0.1.1	     test.localdomain	   test
 EOF
+
+echo 'Server = https://mirrors.tuna.tsinghua.edu.cn/archlinux/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+pacman -Sy archlinux-keyring
 
 pacman -S --noconfirm dhcp wpa_supplicant dialog networkmanager zsh sudo
 systemctl enable NetworkManager
