@@ -1,13 +1,8 @@
 #!/bin/bash
 
 # 如果有命令执行失败，立即停止脚本
-set -e
-
-# 当脚本退出时，打印错误消息
-trap 'echo "脚本执行出错，请检查！"; exit 1' ERR
-
-
 # Update the system clock
+
 timedatectl set-ntp true
 
 # wipefs -a /dev/sda
