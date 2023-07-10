@@ -27,7 +27,8 @@ mkdir /mnt/boot
 mount /dev/sda1 /mnt/boot
 
 # Install essential packages
-pacstrap /mnt base linux linux-firmware vim net-tools wget curl
+pacman -Sy archlinux-keyring
+pacstrap /mnt base base-devel  linux linux-firmware vim net-tools wget curl dhcpcd net-tools man openssh 
 
 # Fstab
 genfstab -U /mnt >> /mnt/etc/fstab
