@@ -14,7 +14,7 @@ mkdir -p /mnt/boot/efi
 mount /dev/sda1 /mnt/boot/efi
 
 echo 'Server = https://mirrors.aliyun.com/archlinux/$repo/os/$arch' > /etc/pacman.d/mirrorlist
-pacman -Sy archlinux-keyring
+pacman -Sy --noconfirm archlinux-keyring
 pacman -Syy
 pacstrap /mnt base base-devel linux linux-firmware vim git dhcpcd openssh man net-tools
 
@@ -36,8 +36,8 @@ cat>>/etc/hosts<<EOF
 127.0.1.1	     test.localdomain	   test
 EOF
 
-echo 'Server = https://mirrors.aliyun.com/archlinux/$repo/os/$arch' > /etc/pacman.d/mirrorlist
-pacman -Sy archlinux-keyring
+echo "Server = https://mirrors.aliyun.com/archlinux/$repo/os/$arch" > /etc/pacman.d/mirrorlist
+pacman -Sy --noconfirm archlinux-keyring
 
 pacman -S --noconfirm ttf-arphic-uming  dhcp wpa_supplicant dialog networkmanager zsh sudo
 systemctl enable NetworkManager
@@ -60,3 +60,6 @@ grub-install /dev/sda
 grub-mkconfig -o /boot/grub/grub.cfg
 
 EOFARCH
+
+
+reboot
