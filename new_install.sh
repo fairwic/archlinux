@@ -2,21 +2,21 @@ timedatectl set-ntp true
 
 # Format the partitions
 mkfs.fat -F32 /dev/sda1
-mkswap /dev/sda2
-mkfs.ext5 /dev/sda3
+mkswap /dev/sda2 -L Swap
+swapon /dev/sda2
+mkfs.ext4 /dev/sda3
 
 # Mount the file systems
 mount /dev/sda3 /mnt
-swapon /dev/sda2
-mkdir /mnt/boot
 
 mkdir -p /mnt/boot/efi
 mount /dev/sda1 /mnt/boot/efi
 
 echo 'Server = https://mirrors.aliyun.com/archlinux/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+
 pacman -Sy --noconfirm archlinux-keyring
 pacman -Syy
-pacstrap /mnt base base-devel linux linux-firmware vim git dhcpcd openssh man net-tools
+pacstrap  -i /mnt base base-devel linux linux-firmware vim git dhcpcd openssh man net-tools
 
 genfstab -U /mnt >> /mnt/etc/fstab
 
@@ -41,6 +41,7 @@ pacman -Sy --noconfirm archlinux-keyring
 
 pacman -S --noconfirm ttf-arphic-uming  dhcp wpa_supplicant dialog networkmanager zsh sudo
 systemctl enable NetworkManager
+systemctl enable dhcpcd.service
 
 passwd<<EOF
 onions
@@ -56,6 +57,7 @@ EOF
 
 
 pacman -S --noconfirm grub
+pacman -S --noconfirm efibootmgr
 grub-install /dev/sda
 grub-mkconfig -o /boot/grub/grub.cfg
 
