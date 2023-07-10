@@ -1,44 +1,22 @@
 timedatectl set-ntp true
 
-fdisk /dev/sda <<EOF
-n
-p
-1
-
-+600M
-n
-p
-2
-
-+10G
-n
-p
-3
-
-+50G
-n
-p
-
-+30G
-w
-EOF
-
-mkfs.vfat -F32 /dev/sda1
+# Format the partitions
+mkfs.fat -F32 /dev/sda1
 mkswap /dev/sda2
-swapon /dev/sda2
-mkfs.ext4 /dev/sda3
-mkfs.ext4 /dev/sda4
+mkfs.ext5 /dev/sda3
 
+# Mount the file systems
 mount /dev/sda3 /mnt
+swapon /dev/sda2
 mkdir /mnt/boot
-mount /dev/sda1 /mnt/boot
-mkdir /mnt/home
-mount /dev/sda4 /mnt/home
 
-echo 'Server = https://mirrors.tuna.tsinghua.edu.cn/archlinux/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+mkdir -p /mnt/boot/efi
+mount /dev/sda1 /mnt/boot/efi
+
+echo 'Server = https://mirrors.aliyun.com/archlinux/$repo/os/$arch' > /etc/pacman.d/mirrorlist
 pacman -Sy archlinux-keyring
 pacman -Syy
-pacstrap /mnt base linux linux-firmware vim git
+pacstrap /mnt base base-devel linux linux-firmware vim git dhcpcd openssh man net-tools
 
 genfstab -U /mnt >> /mnt/etc/fstab
 
@@ -58,10 +36,10 @@ cat>>/etc/hosts<<EOF
 127.0.1.1	     test.localdomain	   test
 EOF
 
-echo 'Server = https://mirrors.tuna.tsinghua.edu.cn/archlinux/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+echo 'Server = https://mirrors.aliyun.com/archlinux/$repo/os/$arch' > /etc/pacman.d/mirrorlist
 pacman -Sy archlinux-keyring
 
-pacman -S --noconfirm dhcp wpa_supplicant dialog networkmanager zsh sudo
+pacman -S --noconfirm ttf-arphic-uming  dhcp wpa_supplicant dialog networkmanager zsh sudo
 systemctl enable NetworkManager
 
 passwd<<EOF
