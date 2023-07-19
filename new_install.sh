@@ -36,7 +36,7 @@ cat>>/etc/hosts<<EOF
 127.0.1.1	     test.localdomain	   test
 EOF
 
-echo "Server = https://mirrors.aliyun.com/archlinux/$repo/os/$arch" > /etc/pacman.d/mirrorlist
+echo "Server = https://mirrors.aliyun.com/archlinux/\$repo/os/\$arch" > /etc/pacman.d/mirrorlist
 pacman -Sy --noconfirm archlinux-keyring
 
 pacman -S --noconfirm ttf-arphic-uming  dhcp wpa_supplicant dialog networkmanager zsh sudo
