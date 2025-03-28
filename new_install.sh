@@ -104,7 +104,9 @@ format_partitions() {
 # Install base system
 install_base() {
   pacman -Sy --noconfirm archlinux-keyring
-  pacstrap /mnt base base-devel linux linux-firmware linux-headers vim networkmanager sudo
+  # Add essential packages for hardware support and filesystem
+  pacstrap /mnt base base-devel linux linux-firmware linux-headers vim networkmanager sudo \
+    mkinitcpio udev lvm2 mdadm xfsprogs dosfstools e2fsprogs ntfs-3g
 }
 
 # Generate fstab
@@ -129,6 +131,12 @@ configure_system() {
   echo $HOSTNAME > /etc/hostname
   systemctl enable NetworkManager
   
+  # Configure mkinitcpio
+  sed -i 's/^HOOKS=.*/HOOKS=(base udev block autodetect modconf keyboard keymap consolefont filesystems fsck)/' /etc/mkinitcpio.conf
+  
+  # Regenerate initramfs
+  mkinitcpio -P
+  
   # Root password
   echo "root:$ROOT_PASSWORD" | chpasswd
   
@@ -140,16 +148,23 @@ configure_system() {
     echo "title Arch Linux" > /boot/loader/entries/arch.conf
     echo "linux /vmlinuz-linux" >> /boot/loader/entries/arch.conf
     echo "initrd /initramfs-linux.img" >> /boot/loader/entries/arch.conf
-    echo "options root=$(blkid -s UUID -o value ${DISK}3) rw" >> /boot/loader/entries/arch.conf
+    echo "options root=UUID=$(blkid -s UUID -o value ${DISK}3) rw rootfstype=ext4 add_efi_memmap" >> /boot/loader/entries/arch.conf
   else
     pacman -S --noconfirm grub
     grub-install $DISK
+    # Update grub configuration
+    sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="rootfstype=ext4"/' /etc/default/grub
     grub-mkconfig -o /boot/grub/grub.cfg
   fi
 
-  # Add user
+  # Add user and sudo configuration
   useradd -m -G wheel -s /bin/bash fangweicong
   echo "fangweicong:$ROOT_PASSWORD" | chpasswd
+  echo "%wheel ALL=(ALL) ALL" > /etc/sudoers.d/wheel
+  
+  # Enable essential services
+  systemctl enable systemd-modules-load
+  systemctl enable systemd-udevd
 EOF
 }
 
