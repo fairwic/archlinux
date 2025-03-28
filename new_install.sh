@@ -1,13 +1,58 @@
 #!/bin/bash
 set -euo pipefail
 
+# 检查网络连接函数
+check_network() {
+    echo "正在检查网络连接..."
+    if ! ping -c 1 archlinux.org &>/dev/null; then
+        echo "错误：无法连接到 archlinux.org"
+        echo "请检查您的网络连接并确保："
+        echo "1. 网线已正确连接或WiFi已连接"
+        echo "2. 使用 ip link 检查网络接口状态"
+        echo "3. 使用 ip addr 检查是否获取到IP地址"
+        echo "4. 检查DNS设置是否正确"
+        exit 1
+    fi
+    echo "网络连接正常！"
+}
+
+# 更新系统时间
+update_system_time() {
+    echo "正在同步系统时间..."
+    timedatectl set-ntp true
+    sleep 2
+}
+
+# 更新镜像源
+update_mirrorlist() {
+    echo "正在更新镜像源..."
+    # 备份原有镜像源
+    cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.backup
+    
+    # 更新镜像源数据库
+    if ! pacman -Sy --noconfirm archlinux-keyring; then
+        echo "错误：无法更新镜像源"
+        exit 1
+    fi
+    
+    # 使用reflector选择最快的镜像源（如果已安装）
+    if command -v reflector &>/dev/null; then
+        reflector --country China --age 12 --protocol https --sort rate --save /etc/pacman.d/mirrorlist
+    fi
+}
+
+# 执行网络检查和更新
+check_network
+update_system_time
+update_mirrorlist
+
 # 需要用户自定义的变量
 DISK="/dev/sda"              # 安装磁盘（根据实际情况修改）
 HOSTNAME="archlinux"         # 主机名
 TIMEZONE="Asia/Shanghai"     # 时区
 LANG="en_US.UTF-8"           # 系统语言
 KEYMAP="us"                  # 键盘布局
-ROOT_PASSWORD="123456"       # root密码（安装后请立即修改）
+ROOT_PASSWORD="onions"       # root密码（安装后请立即修改）
 
 # 检测UEFI模式
 if [ -d "/sys/firmware/efi/efivars" ]; then
@@ -59,7 +104,7 @@ format_partitions() {
 # 安装基本系统
 install_base() {
   pacman -Sy --noconfirm archlinux-keyring
-  pacstrap /mnt base linux linux-firmware vim networkmanager
+  pacstrap /mnt base base-devel linux linux-firmware linux-headers vim networkmanager sudo
 }
 
 # 生成fstab
@@ -101,6 +146,10 @@ configure_system() {
     grub-install $DISK
     grub-mkconfig -o /boot/grub/grub.cfg
   fi
+
+  # 添加用户
+  useradd -m -G wheel -s /bin/bash fangweicong
+  echo "fangweicong:$ROOT_PASSWORD" | chpasswd
 EOF
 }
 
