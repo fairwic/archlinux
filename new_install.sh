@@ -41,14 +41,51 @@ update_mirrorlist() {
     fi
 }
 
+# Function to select installation disk
+select_disk() {
+    echo "Available disks:"
+    echo "----------------"
+    lsblk -d -e 7,11 -o NAME,SIZE,MODEL
+    echo "----------------"
+    
+    # Get available disks
+    mapfile -t disks < <(lsblk -d -e 7,11 -o NAME | tail -n +2)
+    
+    if [ ${#disks[@]} -eq 0 ]; then
+        echo "Error: No available disks found"
+        exit 1
+    fi
+    
+    PS3="Please select the disk for installation (enter number): "
+    select disk in "${disks[@]}"; do
+        if [ -n "$disk" ]; then
+            echo "You selected: /dev/$disk"
+            echo "WARNING: All data on /dev/$disk will be erased!"
+            read -p "Are you sure you want to continue? (y/N): " confirm
+            if [[ "$confirm" =~ ^[Yy]$ ]]; then
+                DISK="/dev/$disk"
+                break
+            else
+                echo "Installation aborted by user"
+                exit 1
+            fi
+        else
+            echo "Invalid selection. Please try again."
+        fi
+    done
+}
+
 # Execute network check and updates
 check_network
 update_system_time
 update_mirrorlist
 
+# Select installation disk
+select_disk
+
 # User-defined variables
-DISK="/dev/sda"              # Installation disk (modify according to actual situation)
-HOSTNAME="archlinux"         # Hostname
+# DISK is now set by select_disk function
+HOSTNAME="fwc-arch"         # Hostname
 TIMEZONE="Asia/Shanghai"     # Timezone
 LANG="en_US.UTF-8"          # System language
 KEYMAP="us"                 # Keyboard layout
