@@ -1,26 +1,94 @@
 #!/bin/bash
 set -euo pipefail
 
-# Error handling function
+# Global variables for cleanup tracking
+declare -A MOUNT_POINTS
+declare -A ENABLED_SERVICES
+
+# Cleanup function
+cleanup() {
+    log "INFO" "Starting cleanup process..."
+    
+    # Unmount all tracked mount points in reverse order
+    for mount_point in "${!MOUNT_POINTS[@]}"; do
+        if mountpoint -q "$mount_point" 2>/dev/null; then
+            log "INFO" "Unmounting $mount_point"
+            umount -R "$mount_point" || log "WARNING" "Failed to unmount $mount_point"
+        fi
+    done
+    
+    # Disable swap if it was enabled
+    if swapon --show | grep -q "${DISK}2" 2>/dev/null; then
+        log "INFO" "Disabling swap"
+        swapoff "${DISK}2" || log "WARNING" "Failed to disable swap"
+    fi
+    
+    # Remove temporary files
+    if [ -f /mnt/configure_chroot.sh ]; then
+        log "INFO" "Removing temporary files"
+        rm -f /mnt/configure_chroot.sh
+    fi
+    
+    log "INFO" "Cleanup completed"
+}
+
+# Error handling function with improved cleanup
 error_handler() {
     local line_number=$1
     local error_code=$2
     local error_message=$3
+    
+    echo "----------------------------------------"
+    echo "ERROR DETECTED - STOPPING INSTALLATION"
+    echo "----------------------------------------"
     echo "Error occurred in script at line $line_number"
     echo "Error code: $error_code"
     echo "Error message: $error_message"
-    echo "Installation failed. Please check the error message above."
+    echo
+    echo "Stack trace:"
+    local frame=0
+    while caller $frame; do
+        ((frame++))
+    done
+    echo "----------------------------------------"
     
-    # Cleanup if error occurs during installation
-    if mountpoint -q /mnt/boot 2>/dev/null; then
-        umount -R /mnt/boot
+    # Perform cleanup
+    cleanup
+    
+    # Save error log
+    if [ -d "/mnt" ]; then
+        local error_log="/mnt/install_error.log"
+        {
+            echo "Installation failed at $(date '+%Y-%m-%d %H:%M:%S')"
+            echo "Error line: $line_number"
+            echo "Error code: $error_code"
+            echo "Error message: $error_message"
+            echo
+            echo "System information:"
+            uname -a
+            echo
+            echo "Memory status:"
+            free -h
+            echo
+            echo "Disk status:"
+            lsblk
+            echo
+            echo "Mount points:"
+            mount
+            echo
+            echo "Last 50 lines of pacman log:"
+            tail -n 50 /var/log/pacman.log 2>/dev/null || echo "No pacman log available"
+        } > "$error_log"
+        echo "Error details have been saved to $error_log"
     fi
-    if mountpoint -q /mnt 2>/dev/null; then
-        umount -R /mnt
-    fi
-    if swapon --show | grep -q "${DISK}2" 2>/dev/null; then
-        swapoff ${DISK}2
-    fi
+    
+    echo
+    echo "Installation failed. Please check the error message above."
+    echo "You may need to:"
+    echo "1. Check the error log for details"
+    echo "2. Fix the reported issue"
+    echo "3. Restart the installation process"
+    echo
     
     exit $error_code
 }
@@ -28,11 +96,24 @@ error_handler() {
 # Set error trap
 trap 'error_handler ${LINENO} $? "Command failed"' ERR
 
-# Log function
+# Enhanced log function with timestamps
 log() {
     local level=$1
     shift
-    echo "[$level] $*"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$level] $*"
+}
+
+# Function to verify a step completed successfully
+verify_step() {
+    local step_name=$1
+    local check_command=$2
+    local error_message=$3
+    
+    log "INFO" "Verifying step: $step_name"
+    if ! eval "$check_command"; then
+        error_handler ${LINENO} 1 "$error_message"
+    fi
+    log "INFO" "Step verified successfully: $step_name"
 }
 
 # Check system requirements
@@ -229,28 +310,92 @@ partition_disk() {
     fi
 }
 
-# Format partitions
+# Format partitions with verification
 format_partitions() {
-  if [ "$BOOT_MODE" = "UEFI" ]; then
-    mkfs.fat -F32 ${DISK}1
-    mkswap ${DISK}2
-    swapon ${DISK}2
-    mkfs.ext4 ${DISK}3
-    mount ${DISK}3 /mnt
-    mkdir -p /mnt/boot
-    mount ${DISK}1 /mnt/boot
-  else
-    mkfs.ext4 ${DISK}1
-    mount ${DISK}1 /mnt
-  fi
+    log "INFO" "Starting partition formatting..."
+    
+    if [ "$BOOT_MODE" = "UEFI" ]; then
+        # Format EFI partition
+        log "INFO" "Formatting EFI partition..."
+        if ! mkfs.fat -F32 ${DISK}1; then
+            error_handler ${LINENO} 1 "Failed to format EFI partition"
+        fi
+        verify_step "EFI partition format" "blkid ${DISK}1 | grep -q 'vfat'" "EFI partition format verification failed"
+        
+        # Create and enable swap
+        log "INFO" "Creating swap partition..."
+        if ! mkswap ${DISK}2; then
+            error_handler ${LINENO} 1 "Failed to create swap partition"
+        fi
+        if ! swapon ${DISK}2; then
+            error_handler ${LINENO} 1 "Failed to enable swap"
+        fi
+        verify_step "Swap partition" "swapon --show | grep -q ${DISK}2" "Swap partition verification failed"
+        
+        # Format root partition
+        log "INFO" "Formatting root partition..."
+        if ! mkfs.ext4 ${DISK}3; then
+            error_handler ${LINENO} 1 "Failed to format root partition"
+        fi
+        verify_step "Root partition format" "blkid ${DISK}3 | grep -q 'ext4'" "Root partition format verification failed"
+        
+        # Mount partitions
+        log "INFO" "Mounting partitions..."
+        if ! mount ${DISK}3 /mnt; then
+            error_handler ${LINENO} 1 "Failed to mount root partition"
+        fi
+        MOUNT_POINTS["/mnt"]=1
+        
+        if ! mkdir -p /mnt/boot; then
+            error_handler ${LINENO} 1 "Failed to create boot directory"
+        fi
+        if ! mount ${DISK}1 /mnt/boot; then
+            error_handler ${LINENO} 1 "Failed to mount boot partition"
+        fi
+        MOUNT_POINTS["/mnt/boot"]=1
+    else
+        # Format root partition
+        log "INFO" "Formatting root partition..."
+        if ! mkfs.ext4 ${DISK}1; then
+            error_handler ${LINENO} 1 "Failed to format root partition"
+        fi
+        verify_step "Root partition format" "blkid ${DISK}1 | grep -q 'ext4'" "Root partition format verification failed"
+        
+        # Mount root partition
+        if ! mount ${DISK}1 /mnt; then
+            error_handler ${LINENO} 1 "Failed to mount root partition"
+        fi
+        MOUNT_POINTS["/mnt"]=1
+    fi
+    
+    log "INFO" "Partition formatting completed successfully"
 }
 
-# Install base system
+# Install base system with verification
 install_base() {
-  pacman -Sy --noconfirm archlinux-keyring
-  # Add essential packages for hardware support and filesystem
-  pacstrap /mnt base base-devel linux linux-firmware linux-headers vim networkmanager sudo \
-    mkinitcpio udev lvm2 mdadm xfsprogs dosfstools e2fsprogs ntfs-3g
+    log "INFO" "Starting base system installation..."
+    
+    # Update keyring first
+    if ! pacman -Sy --noconfirm archlinux-keyring; then
+        error_handler ${LINENO} 1 "Failed to update archlinux-keyring"
+    fi
+    
+    # Install base packages
+    local base_packages="base base-devel linux linux-firmware linux-headers vim networkmanager sudo mkinitcpio udev lvm2 mdadm xfsprogs dosfstools e2fsprogs ntfs-3g"
+    
+    log "INFO" "Installing base packages..."
+    if ! pacstrap /mnt $base_packages; then
+        error_handler ${LINENO} 1 "Failed to install base packages"
+    fi
+    
+    # Verify installation
+    for pkg in $base_packages; do
+        if ! arch-chroot /mnt pacman -Q $pkg >/dev/null 2>&1; then
+            error_handler ${LINENO} 1 "Package $pkg was not installed correctly"
+        fi
+    done
+    
+    log "INFO" "Base system installation completed successfully"
 }
 
 # Generate fstab
@@ -395,48 +540,43 @@ EOFINNER
     log "INFO" "System configuration completed successfully"
 }
 
-# Main execution flow with progress tracking
+# Main execution flow with enhanced error checking
 main() {
     local total_steps=7
     local current_step=0
     
     log "INFO" "Starting Arch Linux installation..."
+    log "INFO" "Installation started at $(date '+%Y-%m-%d %H:%M:%S')"
     
-    ((current_step++))
-    log "INFO" "[$current_step/$total_steps] Checking system requirements..."
-    check_system_requirements
+    # Create error log directory
+    mkdir -p /var/log/arch_install
     
-    ((current_step++))
-    log "INFO" "[$current_step/$total_steps] Checking network connection..."
-    check_network
+    # Execute each step with verification
+    for step in check_system_requirements \
+                check_network \
+                update_system_time \
+                update_mirrorlist \
+                select_disk \
+                partition_disk \
+                format_partitions \
+                install_base \
+                generate_fstab \
+                configure_system; do
+        ((current_step++))
+        log "INFO" "[$current_step/$total_steps] Executing: $step"
+        if ! $step; then
+            error_handler ${LINENO} 1 "Step $step failed"
+        fi
+        log "INFO" "Step completed successfully: $step"
+    done
     
-    ((current_step++))
-    log "INFO" "[$current_step/$total_steps] Updating system time..."
-    update_system_time
+    # Final verification
+    verify_installation
     
-    ((current_step++))
-    log "INFO" "[$current_step/$total_steps] Updating mirror list..."
-    update_mirrorlist
-    
-    ((current_step++))
-    log "INFO" "[$current_step/$total_steps] Selecting installation disk..."
-    select_disk
-    
-    ((current_step++))
-    log "INFO" "[$current_step/$total_steps] Partitioning and formatting..."
-    partition_disk
-    format_partitions
-    
-    ((current_step++))
-    log "INFO" "[$current_step/$total_steps] Installing and configuring system..."
-    install_base
-    generate_fstab
-    configure_system
-    
-    log "INFO" "Installation completed successfully!"
+    log "INFO" "Installation completed successfully at $(date '+%Y-%m-%d %H:%M:%S')"
     log "INFO" "Please remove installation media and reboot the system"
     log "INFO" "After reboot, login as root and change the root password"
 }
 
-# Start installation
-main
+# Start installation with error handling
+main || error_handler ${LINENO} $? "Installation failed in main function"
