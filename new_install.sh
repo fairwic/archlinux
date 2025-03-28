@@ -18,7 +18,7 @@ cleanup() {
     done
     
     # Disable swap if it was enabled
-    if swapon --show | grep -q "${DISK}2" 2>/dev/null; then
+    if [ -n "${DISK:-}" ] && swapon --show | grep -q "${DISK}2" 2>/dev/null; then
         log "INFO" "Disabling swap"
         swapoff "${DISK}2" || log "WARNING" "Failed to disable swap"
     fi
@@ -245,7 +245,6 @@ HOSTNAME="fwc-arch"         # Hostname
 TIMEZONE="Asia/Shanghai"     # Timezone
 LANG="en_US.UTF-8"          # System language
 KEYMAP="us"                 # Keyboard layout
-ROOT_PASSWORD="onions"      # Root password (change immediately after installation)
 
 # Detect UEFI mode
 if [ -d "/sys/firmware/efi/efivars" ]; then
@@ -263,12 +262,12 @@ partition_disk() {
     # Check if disk exists
     if [ ! -b "$DISK" ]; then
         error_handler ${LINENO} 1 "Selected disk $DISK does not exist"
-    }
+    fi
     
     # Check if disk is mounted
     if grep -q "$DISK" /proc/mounts; then
         error_handler ${LINENO} 1 "Disk $DISK is currently mounted. Please unmount first."
-    }
+    fi
     
     # Clear partition table
     log "INFO" "Clearing partition table..."
@@ -408,9 +407,18 @@ configure_system() {
     log "INFO" "Starting system configuration..."
     
     # Create a temporary script for chroot operations
-    cat > /mnt/configure_chroot.sh <<'EOFINNER'
+    cat > /mnt/configure_chroot.sh <<EOFINNER
 #!/bin/bash
 set -e
+
+# 将主脚本的变量传递给 chroot 环境
+TIMEZONE="$TIMEZONE"
+LANG="$LANG"
+KEYMAP="$KEYMAP"
+HOSTNAME="$HOSTNAME"
+BOOT_MODE="$BOOT_MODE"
+DISK="$DISK"
+ROOT_PASSWORD="$ROOT_PASSWORD"
 
 # Error handling function for chroot environment
 chroot_error() {
@@ -580,3 +588,52 @@ main() {
 
 # Start installation with error handling
 main || error_handler ${LINENO} $? "Installation failed in main function"
+
+# 交互式输入密码
+read_password() {
+    local prompt=$1
+    local password=""
+    local confirm=""
+    
+    while true; do
+        read -s -p "$prompt: " password
+        echo
+        read -s -p "确认密码: " confirm
+        echo
+        
+        if [ "$password" = "$confirm" ]; then
+            echo "$password"
+            return 0
+        else
+            echo "密码不匹配，请重试"
+        fi
+    done
+}
+
+# 在执行前获取密码
+ROOT_PASSWORD=$(read_password "请输入root密码")
+
+# 验证安装
+verify_installation() {
+    log "INFO" "Verifying installation..."
+    
+    # 检查必要文件是否存在
+    for file in /mnt/etc/fstab /mnt/etc/hostname; do
+        if [ ! -f "$file" ]; then
+            error_handler ${LINENO} 1 "Required file $file not found"
+        fi
+    done
+    
+    # 验证引导加载程序配置
+    if [ "$BOOT_MODE" = "UEFI" ]; then
+        if [ ! -d "/mnt/boot/loader" ]; then
+            error_handler ${LINENO} 1 "UEFI bootloader installation failed"
+        fi
+    else
+        if [ ! -f "/mnt/boot/grub/grub.cfg" ]; then
+            error_handler ${LINENO} 1 "GRUB configuration file not found"
+        fi
+    fi
+    
+    log "INFO" "Installation verification completed"
+}
