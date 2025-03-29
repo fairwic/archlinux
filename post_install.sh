@@ -1,47 +1,48 @@
 #!/bin/bash
-# Arch Linux 安装后配置脚本
-# 用于配置中文环境、输入法、蓝牙和其他常用软件
+# Arch Linux Post-Installation Configuration Script
+# For configuring Chinese environment, input methods, Bluetooth and other common software
+# 安装字体等
 
 set -euo pipefail
 
-# 彩色输出
+# Colored output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# 日志函数
+# Logging functions
 log() {
     echo -e "${GREEN}[$(date '+%Y-%m-%d %H:%M:%S')]${NC} $1"
 }
 
 error() {
-    echo -e "${RED}[错误] $1${NC}" >&2
+    echo -e "${RED}[ERROR] $1${NC}" >&2
     exit 1
 }
 
 warn() {
-    echo -e "${YELLOW}[警告] $1${NC}"
+    echo -e "${YELLOW}[WARNING] $1${NC}"
 }
 
-# 检查root权限
+# Check root privileges
 check_root() {
     if [ "$(id -u)" -ne 0 ]; then
-        error "请使用 root 权限运行此脚本，例如: sudo $0"
+        error "Please run this script with root privileges, e.g.: sudo $0"
     fi
 }
 
-# 更新系统
+# Update system
 update_system() {
-    log "正在更新系统..."
-    pacman -Syu --noconfirm || error "系统更新失败"
-    log "系统更新完成"
+    log "Updating system..."
+    pacman -Syu --noconfirm || error "System update failed"
+    log "System update completed"
 }
 
-# 安装中文字体
+# Install Chinese fonts
 install_fonts() {
-    log "正在安装中文字体..."
+    log "Installing Chinese fonts..."
     pacman -S --noconfirm \
         noto-fonts \
         noto-fonts-cjk \
@@ -50,46 +51,132 @@ install_fonts() {
         wqy-zenhei \
         ttf-dejavu \
         ttf-liberation \
-        || error "字体安装失败"
+        adobe-source-han-sans-cn-fonts \
+        adobe-source-han-serif-cn-fonts \
+        || error "Font installation failed"
     
-    # 更新字体缓存
+    # Create better font configuration
+    log "Creating optimized font configuration..."
+    mkdir -p /etc/fonts/conf.d/
+    
+    # Create custom font configuration
+    cat > /etc/fonts/local.conf <<EOF
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <!-- Set default fonts for Chinese -->
+  <match target="pattern">
+    <test name="lang" compare="contains">
+      <string>zh</string>
+    </test>
+    <test name="family">
+      <string>sans-serif</string>
+    </test>
+    <edit name="family" mode="prepend" binding="strong">
+      <string>Noto Sans CJK SC</string>
+      <string>WenQuanYi Micro Hei</string>
+      <string>Source Han Sans CN</string>
+    </edit>
+  </match>
+  
+  <match target="pattern">
+    <test name="lang" compare="contains">
+      <string>zh</string>
+    </test>
+    <test name="family">
+      <string>serif</string>
+    </test>
+    <edit name="family" mode="prepend" binding="strong">
+      <string>Noto Serif CJK SC</string>
+      <string>WenQuanYi Zen Hei</string>
+      <string>Source Han Serif CN</string>
+    </edit>
+  </match>
+  
+  <match target="pattern">
+    <test name="lang" compare="contains">
+      <string>zh</string>
+    </test>
+    <test name="family">
+      <string>monospace</string>
+    </test>
+    <edit name="family" mode="prepend" binding="strong">
+      <string>Noto Sans Mono CJK SC</string>
+      <string>WenQuanYi Micro Hei Mono</string>
+    </edit>
+  </match>
+</fontconfig>
+EOF
+    
+    # Update font cache thoroughly
     fc-cache -fv
-    log "中文字体安装完成"
-}
-
-# 配置中文环境
-setup_locale() {
-    log "正在配置中文环境..."
     
-    # 检查并添加中文 locale
-    if ! grep -q "zh_CN.UTF-8 UTF-8" /etc/locale.gen; then
-        echo "zh_CN.UTF-8 UTF-8" >> /etc/locale.gen
-        locale-gen || error "生成中文 locale 失败"
+    # Test if Chinese fonts are available
+    log "Testing Chinese font availability..."
+    if fc-list :lang=zh | grep -q .; then
+        log "Chinese fonts are available in the system"
+    else
+        warn "Chinese fonts might not be properly installed, please check font configuration manually"
     fi
     
-    # 配置系统环境变量
-    cat > /etc/environment <<EOF
+    log "Chinese fonts installation completed"
+}
+
+# Configure Chinese locale
+setup_locale() {
+    log "Configuring Chinese locale..."
+    
+    # Ensure all required locales are in locale.gen
+    sed -i 's/^#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
+    sed -i 's/^#zh_CN.UTF-8 UTF-8/zh_CN.UTF-8 UTF-8/' /etc/locale.gen
+    
+    # If entries don't exist, add them
+    if ! grep -q "zh_CN.UTF-8 UTF-8" /etc/locale.gen; then
+        echo "zh_CN.UTF-8 UTF-8" >> /etc/locale.gen
+    fi
+    if ! grep -q "en_US.UTF-8 UTF-8" /etc/locale.gen; then
+        echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen
+    fi
+    
+    # Generate locales
+    locale-gen || error "Failed to generate locales"
+    
+    # Configure system environment variables
+    cat > /etc/locale.conf <<EOF
 LANG=zh_CN.UTF-8
 LC_CTYPE=zh_CN.UTF-8
 EOF
     
-    log "中文环境配置完成，重启后生效"
+    # Also add to environment file for compatibility
+    cat > /etc/environment <<EOF
+LANG=zh_CN.UTF-8
+LC_CTYPE=zh_CN.UTF-8
+LANGUAGE=zh_CN:en_US
+EOF
+    
+    # Set system locale immediately (might not work in all environments)
+    if command -v localectl &>/dev/null; then
+        localectl set-locale LANG=zh_CN.UTF-8
+    fi
+    
+    log "Chinese locale configuration completed, will take effect after reboot"
+    log "You can check current locale with 'locale' command after reboot"
 }
 
-# 安装输入法
+# Install input method
 install_input_method() {
-    log "正在安装中文输入法..."
+    log "Installing Chinese input method..."
     
-    # 安装 Fcitx5
+    # Install Fcitx5
     pacman -S --noconfirm \
         fcitx5 \
         fcitx5-chinese-addons \
         fcitx5-qt \
         fcitx5-gtk \
         fcitx5-configtool \
-        || error "输入法安装失败"
+        || error "Input method installation failed"
     
-    # 配置输入法环境变量
+    # Configure input method environment variables
     cat > /etc/environment.d/95-input-method.conf <<EOF
 GTK_IM_MODULE=fcitx
 QT_IM_MODULE=fcitx
@@ -98,57 +185,57 @@ SDL_IM_MODULE=fcitx
 GLFW_IM_MODULE=ibus
 EOF
     
-    # 设置开机自启
+    # Set autostart
     mkdir -p /etc/xdg/autostart
     cat > /etc/xdg/autostart/fcitx5.desktop <<EOF
 [Desktop Entry]
 Name=Fcitx5
-Comment=启动 Fcitx5 输入法
+Comment=Start Fcitx5 Input Method
 Exec=fcitx5
 Type=Application
 Categories=System;Utility;
 EOF
     
-    log "中文输入法安装完成，重启后可用"
+    log "Chinese input method installation completed, will be available after reboot"
 }
 
-# 安装和配置蓝牙
+# Install and configure Bluetooth
 setup_bluetooth() {
-    log "正在安装蓝牙支持..."
+    log "Installing Bluetooth support..."
     
     pacman -S --noconfirm \
         bluez \
         bluez-utils \
         blueman \
-        || error "蓝牙安装失败"
+        || error "Bluetooth installation failed"
     
-    # 启用蓝牙服务
+    # Enable Bluetooth service
     systemctl enable bluetooth.service
     systemctl start bluetooth.service
     
-    log "蓝牙支持安装完成"
+    log "Bluetooth support installation completed"
 }
 
-# 安装常用网络工具
+# Install common network tools
 install_network_tools() {
-    log "正在安装网络工具..."
+    log "Installing network tools..."
     
     pacman -S --noconfirm \
         networkmanager \
         network-manager-applet \
         nm-connection-editor \
-        || error "网络工具安装失败"
+        || error "Network tools installation failed"
     
-    # 确保 NetworkManager 服务启用
+    # Ensure NetworkManager service is enabled
     systemctl enable NetworkManager.service
     systemctl start NetworkManager.service
     
-    log "网络工具安装完成"
+    log "Network tools installation completed"
 }
 
-# 安装常用系统工具
+# Install common system tools
 install_system_tools() {
-    log "正在安装系统工具..."
+    log "Installing system tools..."
     
     pacman -S --noconfirm \
         base-devel \
@@ -160,82 +247,82 @@ install_system_tools() {
         unzip \
         usbutils \
         xdg-user-dirs \
-        || error "系统工具安装失败"
+        || error "System tools installation failed"
     
-    # 创建用户目录
+    # Create user directories
     xdg-user-dirs-update
     
-    log "系统工具安装完成"
+    log "System tools installation completed"
 }
 
-# 安装桌面环境（如果需要）
+# Install desktop environment (if needed)
 install_desktop() {
-    log "您想安装哪个桌面环境？"
-    echo "1) GNOME 桌面"
-    echo "2) KDE Plasma 桌面"
-    echo "3) Xfce 桌面"
-    echo "4) 不安装桌面环境"
+    log "Which desktop environment would you like to install?"
+    echo "1) GNOME Desktop"
+    echo "2) KDE Plasma Desktop"
+    echo "3) Xfce Desktop"
+    echo "4) Don't install desktop environment"
     
-    read -p "请输入选项 [1-4]: " desktop_choice
+    read -p "Please enter your choice [1-4]: " desktop_choice
     
     case $desktop_choice in
         1)
-            log "正在安装 GNOME 桌面环境..."
+            log "Installing GNOME desktop environment..."
             pacman -S --noconfirm \
                 gnome \
                 gnome-tweaks \
                 gdm \
-                || error "GNOME 安装失败"
+                || error "GNOME installation failed"
             
-            # 启用显示管理器
+            # Enable display manager
             systemctl enable gdm.service
             ;;
         2)
-            log "正在安装 KDE Plasma 桌面环境..."
+            log "Installing KDE Plasma desktop environment..."
             pacman -S --noconfirm \
                 plasma \
                 plasma-wayland-session \
                 kde-applications \
                 sddm \
-                || error "KDE 安装失败"
+                || error "KDE installation failed"
             
-            # 启用显示管理器
+            # Enable display manager
             systemctl enable sddm.service
             ;;
         3)
-            log "正在安装 Xfce 桌面环境..."
+            log "Installing Xfce desktop environment..."
             pacman -S --noconfirm \
                 xfce4 \
                 xfce4-goodies \
                 lightdm \
                 lightdm-gtk-greeter \
-                || error "Xfce 安装失败"
+                || error "Xfce installation failed"
             
-            # 启用显示管理器
+            # Enable display manager
             systemctl enable lightdm.service
             ;;
         4)
-            log "跳过桌面环境安装"
+            log "Skipping desktop environment installation"
             ;;
         *)
-            warn "无效选项，跳过桌面环境安装"
+            warn "Invalid option, skipping desktop environment installation"
             ;;
     esac
 }
 
-# 安装AUR助手
+# Install AUR helper
 install_aur_helper() {
-    log "您想安装 AUR 助手吗？(y/n)"
+    log "Would you like to install an AUR helper? (y/n)"
     read -p "> " install_aur
     
     if [[ "$install_aur" =~ ^[Yy]$ ]]; then
-        # 检查是否已安装 git
+        # Check if git is already installed
         if ! command -v git &> /dev/null; then
-            pacman -S --noconfirm git || error "Git 安装失败"
+            pacman -S --noconfirm git || error "Git installation failed"
         fi
         
-        # 创建临时目录并克隆 yay
-        log "正在安装 yay AUR 助手..."
+        # Create temporary directory and clone yay
+        log "Installing yay AUR helper..."
         temp_dir=$(mktemp -d)
         cd "$temp_dir"
         
@@ -243,21 +330,21 @@ install_aur_helper() {
         cd yay
         makepkg -si --noconfirm
         
-        # 清理
+        # Cleanup
         cd ~
         rm -rf "$temp_dir"
         
-        log "AUR 助手安装完成"
+        log "AUR helper installation completed"
     else
-        log "跳过 AUR 助手安装"
+        log "Skipping AUR helper installation"
     fi
 }
 
-# 配置默认编辑器和终端行为
+# Configure default editor and terminal behavior
 configure_defaults() {
-    log "正在配置系统默认设置..."
+    log "Configuring system default settings..."
     
-    # 创建全局 aliases
+    # Create global aliases
     cat > /etc/profile.d/aliases.sh <<EOF
 #!/bin/bash
 alias ls='ls --color=auto'
@@ -267,42 +354,42 @@ EOF
     
     chmod +x /etc/profile.d/aliases.sh
     
-    log "默认设置配置完成"
+    log "Default settings configuration completed"
 }
 
-# 主函数
+# Main function
 main() {
     clear
     echo -e "${BLUE}========================================${NC}"
-    echo -e "${BLUE}    Arch Linux 安装后配置脚本         ${NC}"
+    echo -e "${BLUE}    Arch Linux Post-Installation Script ${NC}"
     echo -e "${BLUE}========================================${NC}"
     echo ""
     
-    # 检查权限
+    # Check permissions
     check_root
     
-    # 询问用户要执行的操作
-    echo "请选择要执行的操作 (输入序号，多个序号用空格分隔):"
-    echo "1) 更新系统"
-    echo "2) 安装中文字体"
-    echo "3) 配置中文环境"
-    echo "4) 安装中文输入法"
-    echo "5) 配置蓝牙"
-    echo "6) 安装网络工具"
-    echo "7) 安装常用系统工具"
-    echo "8) 安装桌面环境"
-    echo "9) 安装 AUR 助手"
-    echo "10) 配置系统默认设置"
-    echo "0) 执行所有操作"
+    # Ask user which operations to execute
+    echo "Please select operations to perform (enter numbers, separate multiple choices with spaces):"
+    echo "1) Update system"
+    echo "2) Install Chinese fonts"
+    echo "3) Configure Chinese locale"
+    echo "4) Install Chinese input method"
+    echo "5) Configure Bluetooth"
+    echo "6) Install network tools"
+    echo "7) Install common system tools"
+    echo "8) Install desktop environment"
+    echo "9) Install AUR helper"
+    echo "10) Configure system defaults"
+    echo "0) Perform all operations"
     
-    read -p "请输入您的选择: " -a choices
+    read -p "Please enter your choice: " -a choices
     
-    # 默认执行所有操作
+    # Default to all operations
     if [[ "${choices[*]}" == "0" ]]; then
         choices=(1 2 3 4 5 6 7 8 9 10)
     fi
     
-    # 根据选择执行操作
+    # Execute operations based on choices
     for choice in "${choices[@]}"; do
         case "$choice" in
             1) update_system ;;
@@ -315,18 +402,18 @@ main() {
             8) install_desktop ;;
             9) install_aur_helper ;;
             10) configure_defaults ;;
-            *) warn "无效选项: $choice" ;;
+            *) warn "Invalid option: $choice" ;;
         esac
     done
     
-    log "配置完成！建议现在重启系统使所有更改生效。"
-    read -p "是否立即重启系统？(y/n) " reboot_now
+    log "Configuration completed! It's recommended to reboot your system now for all changes to take effect."
+    read -p "Would you like to reboot now? (y/n) " reboot_now
     if [[ "$reboot_now" =~ ^[Yy]$ ]]; then
-        log "系统将在 5 秒后重启..."
+        log "System will reboot in 5 seconds..."
         sleep 5
         reboot
     fi
 }
 
-# 执行主函数
+# Execute main function
 main
