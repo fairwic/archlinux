@@ -1,48 +1,48 @@
 #!/bin/bash
-# Arch Linux 系统备份恢复脚本 (使用 Timeshift)
-# 此脚本用于设置和管理 Arch Linux 的系统备份与恢复
+# Arch Linux System Backup and Restore Script (using Timeshift)
+# This script is used to setup and manage Arch Linux system backups and restoration
 
 set -euo pipefail
 
-# 彩色输出
+# Colored output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # 无颜色
+NC='\033[0m' # No Color
 
-# 日志函数
+# Logging functions
 log() {
     echo -e "${GREEN}[$(date '+%Y-%m-%d %H:%M:%S')]${NC} $1"
 }
 
 error() {
-    echo -e "${RED}[错误] $1${NC}" >&2
+    echo -e "${RED}[ERROR] $1${NC}" >&2
     exit 1
 }
 
 warn() {
-    echo -e "${YELLOW}[警告] $1${NC}"
+    echo -e "${YELLOW}[WARNING] $1${NC}"
 }
 
-# 检查 root 权限
+# Check root privileges
 check_root() {
     if [ "$(id -u)" -ne 0 ]; then
-        error "请使用 root 权限运行此脚本，例如: sudo $0"
+        error "Please run this script with root privileges, e.g.: sudo $0"
     fi
 }
 
-# 安装 Timeshift
+# Install Timeshift
 install_timeshift() {
-    log "正在安装 Timeshift..."
+    log "Installing Timeshift..."
     
-    # 检查是否已安装 yay
+    # Check if yay is already installed
     if ! command -v yay &> /dev/null; then
-        log "正在安装 AUR 助手 yay..."
-        # 安装构建工具
+        log "Installing AUR helper yay..."
+        # Install build tools
         pacman -S --needed --noconfirm base-devel git
         
-        # 创建临时目录并克隆 yay
+        # Create temporary directory and clone yay
         temp_dir=$(mktemp -d)
         git clone https://aur.archlinux.org/yay.git "$temp_dir/yay"
         cd "$temp_dir/yay"
@@ -51,24 +51,24 @@ install_timeshift() {
         rm -rf "$temp_dir"
         
         if ! command -v yay &> /dev/null; then
-            error "yay 安装失败，请手动安装后重试"
+            error "Failed to install yay, please install it manually and try again"
         fi
     fi
     
-    # 使用 yay 安装 timeshift
-    sudo -u nobody yay -S --noconfirm timeshift || error "Timeshift 安装失败"
+    # Use yay to install timeshift
+    sudo -u nobody yay -S --noconfirm timeshift || error "Failed to install Timeshift"
     
-    log "Timeshift 安装完成"
+    log "Timeshift installation completed"
 }
 
-# 配置 Timeshift 的 RSYNC 模式
+# Configure Timeshift's RSYNC mode
 configure_timeshift_rsync() {
-    log "正在配置 Timeshift RSYNC 模式..."
+    log "Configuring Timeshift RSYNC mode..."
     
-    # 创建配置目录
+    # Create configuration directory
     mkdir -p /etc/timeshift
     
-    # 设置基本配置
+    # Set basic configuration
     cat > /etc/timeshift/timeshift.json <<EOF
 {
   "backup_device_uuid" : "",
@@ -110,26 +110,26 @@ configure_timeshift_rsync() {
 }
 EOF
     
-    # 获取根分区的 UUID 并设置为备份分区
+    # Get root partition UUID and set as backup partition
     ROOT_UUID=$(findmnt -no UUID /)
     sed -i "s/\"backup_device_uuid\" : \"\"/\"backup_device_uuid\" : \"$ROOT_UUID\"/" /etc/timeshift/timeshift.json
     sed -i "s/\"parent_device_uuid\" : \"\"/\"parent_device_uuid\" : \"$ROOT_UUID\"/" /etc/timeshift/timeshift.json
     
-    log "Timeshift RSYNC 模式配置完成"
+    log "Timeshift RSYNC mode configuration completed"
 }
 
-# 配置 Timeshift 的 BTRFS 模式
+# Configure Timeshift's BTRFS mode
 configure_timeshift_btrfs() {
-    log "正在检查是否可以使用 BTRFS 模式..."
+    log "Checking if BTRFS mode can be used..."
     
-    # 检查根文件系统是否为 BTRFS
+    # Check if root filesystem is BTRFS
     if [ "$(findmnt -no FSTYPE /)" = "btrfs" ]; then
-        log "检测到 BTRFS 文件系统，配置 Timeshift BTRFS 模式..."
+        log "BTRFS filesystem detected, configuring Timeshift BTRFS mode..."
         
-        # 创建配置目录
+        # Create configuration directory
         mkdir -p /etc/timeshift
         
-        # 设置基本配置
+        # Set basic configuration
         cat > /etc/timeshift/timeshift.json <<EOF
 {
   "backup_device_uuid" : "",
@@ -156,153 +156,153 @@ configure_timeshift_btrfs() {
 }
 EOF
         
-        # 获取根分区的 UUID 并设置为备份分区
+        # Get root partition UUID and set as backup partition
         ROOT_UUID=$(findmnt -no UUID /)
         sed -i "s/\"backup_device_uuid\" : \"\"/\"backup_device_uuid\" : \"$ROOT_UUID\"/" /etc/timeshift/timeshift.json
         sed -i "s/\"parent_device_uuid\" : \"\"/\"parent_device_uuid\" : \"$ROOT_UUID\"/" /etc/timeshift/timeshift.json
         
-        log "Timeshift BTRFS 模式配置完成"
+        log "Timeshift BTRFS mode configuration completed"
         return 0
     else
-        log "未检测到 BTRFS 文件系统，将使用 RSYNC 模式"
+        log "BTRFS filesystem not detected, will use RSYNC mode"
         return 1
     fi
 }
 
-# 创建备份
+# Create backup
 create_backup() {
-    log "正在创建系统备份..."
+    log "Creating system backup..."
     
-    # 创建标签名
+    # Create label name
     TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-    COMMENT="自动备份_$TIMESTAMP"
+    COMMENT="Auto_Backup_$TIMESTAMP"
     
-    # 使用 timeshift 创建快照
+    # Use timeshift to create snapshot
     if ! timeshift --create --comments "$COMMENT" --verbose; then
-        error "创建备份失败"
+        error "Failed to create backup"
     fi
     
-    log "系统备份创建完成，标签: $COMMENT"
+    log "System backup created successfully, label: $COMMENT"
 }
 
-# 列出可用备份
+# List available backups
 list_backups() {
-    log "可用的系统备份:"
+    log "Available system backups:"
     
-    # 列出所有快照
+    # List all snapshots
     timeshift --list
     
     echo ""
-    log "使用 '恢复备份' 选项并输入快照名称以恢复系统"
+    log "Use the 'Restore Backup' option and enter a snapshot name to restore the system"
 }
 
-# 恢复备份
+# Restore backup
 restore_backup() {
-    log "请从以下备份中选择要恢复的快照:"
+    log "Please select a snapshot to restore from the following backups:"
     
-    # 获取可用的快照列表
+    # Get available snapshot list
     SNAPSHOTS=$(timeshift --list | grep "^[0-9]" | awk '{print $3}')
     
     if [ -z "$SNAPSHOTS" ]; then
-        error "没有找到可用的备份快照"
+        error "No available backup snapshots found"
     fi
     
-    # 显示可用的快照
+    # Display available snapshots
     echo "$SNAPSHOTS" | nl
     
-    # 读取用户选择
-    read -p "请输入要恢复的快照编号: " choice
+    # Read user selection
+    read -p "Enter the snapshot number to restore: " choice
     
-    # 获取所选快照的名称
+    # Get selected snapshot name
     SELECTED_SNAPSHOT=$(echo "$SNAPSHOTS" | sed -n "${choice}p")
     
     if [ -z "$SELECTED_SNAPSHOT" ]; then
-        error "无效的选择"
+        error "Invalid selection"
     fi
     
-    log "您选择了恢复快照: $SELECTED_SNAPSHOT"
-    read -p "确定要恢复此快照吗？这将覆盖当前系统。(y/N): " confirm
+    log "You selected to restore snapshot: $SELECTED_SNAPSHOT"
+    read -p "Are you sure you want to restore this snapshot? This will overwrite the current system. (y/N): " confirm
     
     if [[ "$confirm" =~ ^[Yy]$ ]]; then
-        log "正在恢复系统到快照: $SELECTED_SNAPSHOT"
-        log "警告: 系统将在恢复后自动重启..."
+        log "Restoring system to snapshot: $SELECTED_SNAPSHOT"
+        log "Warning: The system will automatically reboot after restoration..."
         
-        # 确认是否需要立即重启
-        read -p "准备好后按回车继续..." nothing
+        # Confirm if need to restart immediately
+        read -p "Press Enter to continue when ready..." nothing
         
-        # 执行恢复
+        # Execute restoration
         if ! timeshift --restore --snapshot "$SELECTED_SNAPSHOT" --verbose --yes; then
-            error "系统恢复失败"
+            error "System restoration failed"
         fi
     else
-        log "已取消恢复操作"
+        log "Restoration operation cancelled"
     fi
 }
 
-# 设置定时备份
+# Setup scheduled backups
 setup_scheduled_backups() {
-    log "正在设置定时备份..."
+    log "Setting up scheduled backups..."
     
-    # 启用并启动 timeshift-autosnap 服务
+    # Enable and start timeshift-autosnap service
     systemctl enable cronie.service
     systemctl start cronie.service
     
-    # 创建每日备份的 cron 任务
-    echo "0 4 * * * /usr/bin/timeshift --create --comments \"每日自动备份\" --skip-grub > /dev/null 2>&1" > /tmp/timeshift-cron
+    # Create daily backup cron task
+    echo "0 4 * * * /usr/bin/timeshift --create --comments \"Daily Auto Backup\" --skip-grub > /dev/null 2>&1" > /tmp/timeshift-cron
     crontab /tmp/timeshift-cron
     rm /tmp/timeshift-cron
     
-    log "已设置每天凌晨 4 点执行自动备份"
-    log "系统最多保留: 2个月度备份, 3个周度备份, 5个每日备份"
+    log "Scheduled daily backup at 4:00 AM"
+    log "System will keep: 2 monthly backups, 3 weekly backups, 5 daily backups"
 }
 
-# 设置 Timeshift 开机启动时自动创建快照
+# Setup Timeshift to automatically create snapshot at boot
 setup_boot_snapshot() {
-    log "正在设置开机自动备份..."
+    log "Setting up boot time auto backup..."
     
-    # 修改 Timeshift 配置
+    # Modify Timeshift configuration
     sed -i 's/"schedule_boot" : "false"/"schedule_boot" : "true"/' /etc/timeshift/timeshift.json
     
-    log "已启用开机自动创建快照功能"
+    log "Boot time auto-snapshot feature enabled"
 }
 
-# 清理旧备份
+# Clean up old backups
 cleanup_old_backups() {
-    log "正在清理旧备份..."
+    log "Cleaning up old backups..."
     
-    # 使用 timeshift 的自动清理功能
+    # Use timeshift's auto cleanup feature
     if ! timeshift --delete-all; then
-        warn "清理旧备份时出现问题，可能没有过期的备份需要清理"
+        warn "Problem cleaning up old backups, there may be no expired backups to clean"
     fi
     
-    log "旧备份清理完成"
+    log "Old backup cleanup completed"
 }
 
-# 主函数
+# Main function
 main() {
     clear
     echo -e "${BLUE}========================================${NC}"
-    echo -e "${BLUE}    Arch Linux 系统备份与恢复工具      ${NC}"
-    echo -e "${BLUE}    (基于 Timeshift)                   ${NC}"
+    echo -e "${BLUE}    Arch Linux Backup & Restore Tool    ${NC}"
+    echo -e "${BLUE}    (based on Timeshift)                ${NC}"
     echo -e "${BLUE}========================================${NC}"
     echo ""
     
-    # 检查权限
+    # Check permissions
     check_root
     
-    # 主菜单
+    # Main menu
     while true; do
         echo ""
-        echo "请选择操作:"
-        echo "1) 安装并配置 Timeshift"
-        echo "2) 创建系统备份"
-        echo "3) 列出可用备份"
-        echo "4) 恢复系统备份"
-        echo "5) 设置定时自动备份"
-        echo "6) 清理旧备份"
-        echo "0) 退出"
+        echo "Select an operation:"
+        echo "1) Install and configure Timeshift"
+        echo "2) Create system backup"
+        echo "3) List available backups"
+        echo "4) Restore system backup"
+        echo "5) Setup scheduled auto backups"
+        echo "6) Clean up old backups"
+        echo "0) Exit"
         
-        read -p "请输入选项 [0-6]: " choice
+        read -p "Enter your choice [0-6]: " choice
         
         case "$choice" in
             1)
@@ -328,15 +328,15 @@ main() {
                 cleanup_old_backups
                 ;;
             0)
-                log "退出程序"
+                log "Exiting program"
                 exit 0
                 ;;
             *)
-                warn "无效选项: $choice"
+                warn "Invalid option: $choice"
                 ;;
         esac
     done
 }
 
-# 运行主函数
+# Run main function
 main 
