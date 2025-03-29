@@ -39,42 +39,122 @@ install_timeshift() {
     # Check if yay is already installed
     if ! command -v yay &> /dev/null; then
         log "Installing AUR helper yay..."
-        # Install build tools
-        pacman -S --needed --noconfirm base-devel git
+        # Install build tools and Go language
+        pacman -S --needed --noconfirm base-devel git go curl
         
         # Create a non-root build user if it doesn't exist
         if ! id -u builduser &>/dev/null; then
             useradd -m builduser
         fi
         
-        # Create temporary directory and clone yay
+        # Create temporary directory
         temp_dir=$(mktemp -d)
         chown -R builduser:builduser "$temp_dir"
+        cd "$temp_dir"
         
-        # Clone yay repository
-        git clone https://aur.archlinux.org/yay.git "$temp_dir/yay"
-        chown -R builduser:builduser "$temp_dir/yay"
+        # 尝试直接下载最新发布版本，而不是克隆仓库
+        log "直接下载yay发布版本..."
+        YAY_VERSION="12.3.5"
         
-        # Run makepkg as builduser
-        cd "$temp_dir/yay"
-        sudo -u builduser bash -c 'makepkg -si --noconfirm'
+        # 创建下载函数，自动选择最快的方式
+        download_yay() {
+            # 先尝试国内镜像
+            log "尝试从国内镜像下载yay-${YAY_VERSION}.tar.gz..."
+            if curl -L -o yay.tar.gz "https://ghproxy.com/https://github.com/Jguer/yay/releases/download/v${YAY_VERSION}/yay_${YAY_VERSION}_x86_64.tar.gz" --connect-timeout 10; then
+                log "从ghproxy镜像下载成功"
+                return 0
+            fi
+            
+            log "镜像下载失败，尝试直接下载..."
+            if curl -L -o yay.tar.gz "https://github.com/Jguer/yay/releases/download/v${YAY_VERSION}/yay_${YAY_VERSION}_x86_64.tar.gz" --connect-timeout 30; then
+                log "直接下载成功"
+                return 0
+            fi
+            
+            log "下载预编译版本失败，尝试下载源码并构建..."
+            # 尝试下载源码包
+            if curl -L -o yay-src.tar.gz "https://ghproxy.com/https://github.com/Jguer/yay/archive/refs/tags/v${YAY_VERSION}.tar.gz" --connect-timeout 10; then
+                log "从ghproxy下载源码成功"
+                return 1  # 返回1表示需要编译
+            fi
+            
+            if curl -L -o yay-src.tar.gz "https://github.com/Jguer/yay/archive/refs/tags/v${YAY_VERSION}.tar.gz" --connect-timeout 30; then
+                log "直接下载源码成功"
+                return 1  # 返回1表示需要编译
+            fi
+            
+            # 如果都失败，尝试克隆AUR仓库
+            log "下载源码包失败，回退到克隆AUR仓库..."
+            if git clone https://aur.archlinux.org/yay.git; then
+                log "克隆AUR仓库成功"
+                return 2  # 返回2表示使用AUR仓库
+            fi
+            
+            return 255  # 全部失败
+        }
+        
+        # 开始下载并安装
+        download_result=$(download_yay)
+        
+        if [ "$download_result" = "0" ]; then
+            # 直接解压预编译版本
+            log "安装预编译的yay二进制文件..."
+            tar xzf yay.tar.gz
+            install -Dm755 yay_${YAY_VERSION}_x86_64/yay /usr/bin/yay
+            install -Dm644 yay_${YAY_VERSION}_x86_64/yay.8 /usr/share/man/man8/yay.8
+            
+        elif [ "$download_result" = "1" ]; then
+            # 编译源码包
+            log "从源码构建yay..."
+            tar xzf yay-src.tar.gz
+            cd "yay-${YAY_VERSION}"
+            chown -R builduser:builduser .
+            sudo -u builduser bash -c 'go build'
+            install -Dm755 yay /usr/bin/yay
+            
+        elif [ "$download_result" = "2" ]; then
+            # 使用AUR仓库构建
+            log "从AUR构建yay..."
+            cd yay
+            # 确保PKGBUILD存在
+            if [ ! -f PKGBUILD ]; then
+                error "找不到PKGBUILD文件，无法构建yay"
+            fi
+            chown -R builduser:builduser .
+            sudo -u builduser bash -c 'makepkg -si --noconfirm --skippgpcheck'
+            
+        else
+            error "所有下载方式均失败，请检查网络连接或手动安装yay"
+        fi
+        
         cd - > /dev/null
         rm -rf "$temp_dir"
         
+        # 检查yay是否安装成功
         if ! command -v yay &> /dev/null; then
-            error "Failed to install yay, please install it manually and try again"
+            error "安装yay失败，请手动安装后重试"
+        else
+            log "yay安装成功！"
         fi
     fi
     
     # Use yay to install timeshift (as a non-root user)
     if id -u builduser &>/dev/null; then
-        sudo -u builduser yay -S --noconfirm timeshift || error "Failed to install Timeshift"
+        log "使用yay安装timeshift (可能需要一些时间)..."
+        # 尝试配置pacman中国镜像加速
+        if command -v pacman-mirrors &> /dev/null; then
+            echo "配置pacman镜像源为中国服务器以加速下载..."
+            pacman-mirrors -c China && pacman -Syy
+        fi
+        
+        # 设置超时时间加长，避免下载超时
+        sudo -u builduser bash -c "yay -S --noconfirm --noprovides --answerdiff=None --answerclean=None --mflags='--skippgpcheck' timeshift" || error "安装Timeshift失败"
     else
         # Fallback to nobody user if builduser doesn't exist
-        sudo -u nobody yay -S --noconfirm timeshift || error "Failed to install Timeshift"
+        sudo -u nobody yay -S --noconfirm --noprovides --answerdiff=None --answerclean=None --mflags='--skippgpcheck' timeshift || error "安装Timeshift失败"
     fi
     
-    log "Timeshift installation completed"
+    log "Timeshift安装完成"
 }
 
 # Configure Timeshift's RSYNC mode
