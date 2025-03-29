@@ -39,12 +39,28 @@ update_mirrorlist() {
     # Use reflector to select fastest mirrors with timeout
     if command -v reflector &>/dev/null; then
         log "INFO" "Using reflector to update mirrors (timeout: 30s)..."
-        if ! timeout 3 reflector --country China --age 12 --protocol https --sort rate --save /etc/pacman.d/mirrorlist; then
+        if ! timeout 30 reflector --country China --age 12 --protocol https --sort rate --save /etc/pacman.d/mirrorlist; then
             log "WARNING" "Reflector timed out or failed, using default mirrors"
         fi
     else
         log "WARNING" "Reflector not installed, using default mirrors"
     fi
+}
+
+# Log function
+log() {
+    local level="$1"
+    local message="$2"
+    echo "[$level] $message"
+}
+
+# Error handler function
+error_handler() {
+    local line="$1"
+    local exit_code="$2"
+    local message="$3"
+    log "ERROR" "Error at line $line: $message (exit code: $exit_code)"
+    exit "$exit_code"
 }
 
 # Function to select installation disk
@@ -123,8 +139,16 @@ partition_disk() {
     parted -s $DISK mkpart primary ext4 4609MiB 100%
   else
     # BIOS partition scheme
-    parted -s $DISK mkpart primary ext4 1MiB 100%
-    parted -s $DISK set 1 boot on
+    # Create BIOS boot partition (1MB) for GRUB
+    parted -s $DISK mkpart primary 1MiB 2MiB
+    parted -s $DISK set 1 bios_grub on
+    
+    # Create swap partition (4GB)
+    parted -s $DISK mkpart primary linux-swap 2MiB 4098MiB
+    
+    # Create root partition (remaining space)
+    parted -s $DISK mkpart primary ext4 4098MiB 100%
+    parted -s $DISK set 3 boot on
   fi
 }
 
@@ -139,8 +163,11 @@ format_partitions() {
     mkdir -p /mnt/boot
     mount ${DISK}1 /mnt/boot
   else
-    mkfs.ext4 ${DISK}1
-    mount ${DISK}1 /mnt
+    # BIOS模式
+    mkswap ${DISK}2
+    swapon ${DISK}2
+    mkfs.ext4 ${DISK}3
+    mount ${DISK}3 /mnt
   fi
 }
 
@@ -149,7 +176,7 @@ install_base() {
   pacman -Sy --noconfirm archlinux-keyring
   # Add essential packages for hardware support and filesystem
   pacstrap /mnt base base-devel linux linux-firmware linux-headers vim networkmanager sudo \
-    mkinitcpio udev lvm2 mdadm xfsprogs dosfstools e2fsprogs ntfs-3g
+    mkinitcpio udev lvm2 mdadm xfsprogs dosfstools e2fsprogs ntfs-3g efibootmgr grub
 }
 
 # Generate fstab
@@ -172,10 +199,18 @@ configure_system() {
   
   # Network configuration
   echo $HOSTNAME > /etc/hostname
+  cat > /etc/hosts <<EOL
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   $HOSTNAME.localdomain   $HOSTNAME
+EOL
   systemctl enable NetworkManager
   
-  # Configure mkinitcpio
-  sed -i 's/^HOOKS=.*/HOOKS=(base udev block autodetect modconf keyboard keymap consolefont filesystems fsck)/' /etc/mkinitcpio.conf
+  # Configure mkinitcpio - 增加更多必要的钩子
+  sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect modconf block keyboard keymap consolefont filesystems fsck)/' /etc/mkinitcpio.conf
+  
+  # 确保MODULES中包含必要的硬盘控制器模块
+  sed -i 's/^MODULES=.*/MODULES=(ahci sd_mod)/' /etc/mkinitcpio.conf
   
   # Regenerate initramfs
   mkinitcpio -P
@@ -185,18 +220,20 @@ configure_system() {
   
   # Bootloader
   if [ "$BOOT_MODE" = "UEFI" ]; then
-    bootctl install
-    echo "default arch" > /boot/loader/loader.conf
-    echo "timeout 3" >> /boot/loader/loader.conf
-    echo "title Arch Linux" > /boot/loader/entries/arch.conf
-    echo "linux /vmlinuz-linux" >> /boot/loader/entries/arch.conf
-    echo "initrd /initramfs-linux.img" >> /boot/loader/entries/arch.conf
-    echo "options root=UUID=$(blkid -s UUID -o value ${DISK}3) rw rootfstype=ext4 add_efi_memmap" >> /boot/loader/entries/arch.conf
+    # 安装并配置GRUB (UEFI模式)
+    pacman -S --noconfirm efibootmgr grub
+    grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
+    
+    # 更新GRUB配置
+    sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="loglevel=3"/' /etc/default/grub
+    grub-mkconfig -o /boot/grub/grub.cfg
   else
+    # 安装并配置GRUB (BIOS模式)
     pacman -S --noconfirm grub
-    grub-install $DISK
-    # Update grub configuration
-    sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="rootfstype=ext4"/' /etc/default/grub
+    grub-install --target=i386-pc $DISK
+    
+    # 更新GRUB配置
+    sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="loglevel=3"/' /etc/default/grub
     grub-mkconfig -o /boot/grub/grub.cfg
   fi
 
