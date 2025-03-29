@@ -1,4 +1,5 @@
 #!/bin/bash
+
 set -euo pipefail
 
 # Default start step
@@ -21,6 +22,7 @@ show_help() {
     echo "  6. Partition disk"
     echo "  7. Format partitions"
     echo "  8. Install base system"
+
     echo "  9. Generate fstab"
     echo "  10. Configure system"
     exit 0
