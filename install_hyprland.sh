@@ -1,6 +1,7 @@
 #!/bin/bash
 # Arch Linux Hyprland安装脚本
 # 用于安装和配置Hyprland窗口管理器及其相关组件
+# 参考JaKooLit/Arch-Hyprland项目改进
 
 set -e
 
@@ -39,21 +40,42 @@ update_system() {
     log "System update completed"
 }
 
+# 安装必要工具
+install_tools() {
+    log "Installing essential tools..."
+    pacman -S --noconfirm --needed \
+        git \
+        wget \
+        unzip \
+        base-devel \
+        xdg-utils \
+        xdg-user-dirs \
+        || error "Failed to install essential tools"
+    log "Essential tools installation completed"
+}
+
 # 安装基础依赖
 install_dependencies() {
     log "Installing base dependencies..."
-    pacman -S --noconfirm \
+    pacman -S --noconfirm --needed \
         wayland \
         xorg-xwayland \
         qt5-wayland \
         qt6-wayland \
+        qt5-svg \
+        qt5-quickcontrols2 \
+        qt5-graphicaleffects \
         pipewire \
+        pipewire-alsa \
         pipewire-pulse \
+        pipewire-jack \
         wireplumber \
         polkit-kde-agent \
         xdg-desktop-portal-hyprland \
+        xdg-desktop-portal-gtk \
         xdg-desktop-portal \
-        xdg-desktop-portal-wlr \
+        grim \
+        slurp \
         || error "Failed to install dependencies"
     log "Base dependencies installation completed"
 }
@@ -62,40 +84,52 @@ install_dependencies() {
 install_gpu_drivers() {
     log "Detecting and installing GPU drivers..."
     
-    # 先安装基本驱动，避免无显示问题
-    pacman -S --noconfirm mesa xf86-video-vesa
+    # 始终安装基础驱动确保系统可用
+    pacman -S --noconfirm --needed mesa xf86-video-vesa
 
     # 检测显卡类型
     if lspci | grep -i "NVIDIA" &>/dev/null; then
         log "NVIDIA GPU detected, installing drivers..."
         
-        # 提示用户选择驱动
         echo "NVIDIA GPU detected. Please select driver type:"
-        echo "1) Proprietary NVIDIA drivers (best performance, may cause issues with Wayland)"
-        echo "2) Open source Nouveau drivers (better compatibility, lower performance)"
+        echo "1) Proprietary NVIDIA drivers (best performance)"
+        echo "2) Open source Nouveau drivers (better compatibility)"
         echo "3) Skip NVIDIA specific drivers (use generic drivers)"
         read -p "Enter your choice [1-3]: " nvidia_choice
         
         case "$nvidia_choice" in
             1)
                 log "Installing proprietary NVIDIA drivers..."
-                pacman -S --noconfirm nvidia nvidia-utils libva libva-nvidia-driver
+                # 安装NVIDIA驱动和必要组件
+                pacman -S --noconfirm --needed \
+                    nvidia-dkms \
+                    nvidia-utils \
+                    lib32-nvidia-utils \
+                    libva \
+                    libva-nvidia-driver \
+                    nvidia-settings
                 
-                # 创建特殊的Hyprland配置，启用NVIDIA支持
-                mkdir -p /etc/skel/.config/hypr
-                cat > /etc/skel/.config/hypr/nvidia.conf <<EOF
-# Nvidia特别配置，包含在hyprland.conf
+                # 创建Hyprland的NVIDIA配置
+                mkdir -p /etc/hypr
+                cat > /etc/hypr/nvidia.conf <<EOF
+# 为Hyprland创建的NVIDIA配置
 env = LIBVA_DRIVER_NAME,nvidia
 env = XDG_SESSION_TYPE,wayland
 env = GBM_BACKEND,nvidia-drm
 env = __GLX_VENDOR_LIBRARY_NAME,nvidia
 env = WLR_NO_HARDWARE_CURSORS,1
-env = WLR_RENDERER,vulkan
+EOF
+
+                # 创建模块加载配置
+                mkdir -p /etc/modprobe.d
+                cat > /etc/modprobe.d/nvidia.conf <<EOF
+options nvidia-drm modeset=1
+options nvidia NVreg_PreserveVideoMemoryAllocations=1
 EOF
                 ;;
             2)
                 log "Installing open source Nouveau drivers..."
-                pacman -S --noconfirm xf86-video-nouveau mesa lib32-mesa
+                pacman -S --noconfirm --needed mesa lib32-mesa xf86-video-nouveau
                 ;;
             3)
                 log "Skipping NVIDIA specific drivers..."
@@ -103,17 +137,32 @@ EOF
         esac
     elif lspci | grep -i "AMD" &>/dev/null; then
         log "AMD GPU detected, installing drivers..."
-        pacman -S --noconfirm mesa lib32-mesa xf86-video-amdgpu vulkan-radeon libva-mesa-driver
+        pacman -S --noconfirm --needed \
+            mesa \
+            lib32-mesa \
+            xf86-video-amdgpu \
+            vulkan-radeon \
+            lib32-vulkan-radeon \
+            libva-mesa-driver \
+            lib32-libva-mesa-driver
     elif lspci | grep -i "Intel" &>/dev/null; then
         log "Intel GPU detected, installing drivers..."
-        pacman -S --noconfirm mesa lib32-mesa vulkan-intel intel-media-driver
+        pacman -S --noconfirm --needed \
+            mesa \
+            lib32-mesa \
+            vulkan-intel \
+            intel-media-driver
     else
         log "No specific GPU detected, installing generic drivers..."
-        pacman -S --noconfirm mesa xf86-video-fbdev
+        pacman -S --noconfirm --needed mesa xf86-video-fbdev
     fi
     
     # 安装硬件视频加速支持
-    pacman -S --noconfirm libva-utils vulkan-tools
+    pacman -S --noconfirm --needed \
+        libva-utils \
+        vulkan-tools \
+        vulkan-icd-loader \
+        lib32-vulkan-icd-loader
     
     log "GPU drivers installation completed"
 }
@@ -121,25 +170,43 @@ EOF
 # 安装Hyprland
 install_hyprland() {
     log "Installing Hyprland window manager..."
-    pacman -S --noconfirm hyprland || error "Hyprland installation failed"
+    
+    # 安装Hyprland和必要组件
+    pacman -S --noconfirm --needed \
+        hyprland \
+        hyprpaper \
+        hyprpicker \
+        xdg-desktop-portal-hyprland \
+        || error "Hyprland installation failed"
+    
     log "Hyprland installation completed"
 }
 
 # 安装配套应用程序
 install_apps() {
     log "Installing companion applications..."
-    pacman -S --noconfirm \
+    
+    # 安装终端和工具
+    pacman -S --noconfirm --needed \
         kitty \
+        alacritty \
         wofi \
         waybar \
+        mako \
+        swappy \
         grim \
         slurp \
-        mako \
         thunar \
+        thunar-archive-plugin \
+        file-roller \
         swaylock \
         swayidle \
         wl-clipboard \
+        xfce4-settings \
+        pavucontrol \
+        brightnessctl \
         || error "Companion applications installation failed"
+    
     log "Companion applications installation completed"
 }
 
@@ -154,8 +221,8 @@ create_configs() {
     cat > /etc/skel/.config/hypr/hyprland.conf <<EOF
 # Hyprland基础配置文件
 
-# 如果有NVIDIA特殊配置，引入它
-source = ~/.config/hypr/nvidia.conf
+# 源文件引入
+source = /etc/hypr/nvidia.conf
 
 # 显示器配置
 monitor=,preferred,auto,1
@@ -170,6 +237,10 @@ input {
     kb_layout = us
     follow_mouse = 1
     sensitivity = 0
+    touchpad {
+        natural_scroll = true
+        tap-to-click = true
+    }
 }
 
 # 界面美化
@@ -223,6 +294,10 @@ bind = $mainMod, D, exec, wofi --show drun
 bind = $mainMod, P, pseudo,
 bind = $mainMod, J, togglesplit,
 
+# 紧急热键
+bind = CTRL ALT, Delete, exec, hyprctl dispatch exit
+bind = CTRL ALT, T, exec, kitty
+
 # 移动焦点
 bind = $mainMod, left, movefocus, l
 bind = $mainMod, right, movefocus, r
@@ -255,6 +330,24 @@ bind = $mainMod SHIFT, 0, movetoworkspace, 10
 
 # 截图
 bind = $mainMod, S, exec, grim -g "$(slurp)" - | wl-copy
+bind = $mainMod SHIFT, S, exec, grim -g "$(slurp)" ~/Pictures/Screenshots/$(date +'%Y%m%d%H%M%S').png
+
+# 调整亮度和音量
+bind = , XF86AudioRaiseVolume, exec, wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ 5%+
+bind = , XF86AudioLowerVolume, exec, wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
+bind = , XF86AudioMute, exec, wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
+bind = , XF86MonBrightnessUp, exec, brightnessctl set +5%
+bind = , XF86MonBrightnessDown, exec, brightnessctl set 5%-
+EOF
+
+    # 创建环境变量配置
+    cat > /etc/skel/.config/hypr/hyprland_env.conf <<EOF
+# Hyprland环境变量配置
+env = XCURSOR_SIZE,24
+env = QT_QPA_PLATFORMTHEME,qt5ct
+env = QT_QPA_PLATFORM,wayland
+env = QT_WAYLAND_DISABLE_WINDOWDECORATION,1
+env = GDK_BACKEND,wayland,x11
 EOF
 
     log "Base configuration files created"
@@ -277,18 +370,13 @@ Type=Application
 EOF
     
     log "Desktop entry file created"
-}
-
-# 配置登录管理器
-setup_login() {
-    log "Configuring login manager..."
     
-    # 先安装基本的X11会话以备回退
-    log "Installing fallback X11 session..."
-    pacman -S --noconfirm xorg xorg-xinit i3 lightdm lightdm-gtk-greeter
-    
-    # 创建i3回退会话
+    # 创建备用桌面会话(X11)
     mkdir -p /usr/share/xsessions
+    
+    # 安装备用窗口管理器
+    pacman -S --noconfirm --needed i3 || log "Failed to install backup window manager, continuing..."
+    
     cat > /usr/share/xsessions/i3-fallback.desktop <<EOF
 [Desktop Entry]
 Name=i3 (Fallback)
@@ -297,192 +385,177 @@ Exec=/usr/bin/i3
 Type=Application
 EOF
     
-    # 安装SDDM
-    pacman -S --noconfirm sddm qt5-graphicaleffects qt5-quickcontrols2 || error "SDDM installation failed"
+    log "Fallback session created"
+}
+
+# 配置登录管理器
+setup_login() {
+    log "Configuring login manager..."
+
+    # 安装SDDM和LightDM作为备用
+    pacman -S --noconfirm --needed \
+        sddm \
+        lightdm \
+        lightdm-gtk-greeter \
+        qt5-graphicaleffects \
+        qt5-quickcontrols2 \
+        || error "Display manager installation failed"
     
     # 创建SDDM配置目录
     mkdir -p /etc/sddm.conf.d
     
-    # 创建SDDM配置文件，包含安全模式和传统X11回退
-    cat > /etc/sddm.conf.d/00-general.conf <<EOF
+    # 创建更安全的SDDM配置
+    cat > /etc/sddm.conf.d/10-wayland.conf <<EOF
 [General]
-# 使用X11以提高兼容性
+# 建议使用X11作为备份，Wayland更不稳定
 DisplayServer=x11
-# 添加调试输出，如果启动失败，这会显示错误信息
-Debug=true
-# 确保即使Wayland失败也能显示登录界面
 GreeterEnvironment=QT_QPA_PLATFORM=xcb
 EOF
-
-    # 启用SDDM和LightDM服务，如果SDDM失败可回退到LightDM
-    systemctl enable sddm.service
     
-    # 创建回退方案 - 创建systemd单元，如果sddm失败则启动lightdm
-    cat > /etc/systemd/system/display-manager-fallback.service <<EOF
-[Unit]
-Description=Display Manager Fallback
-After=sddm.service
-BindsTo=sddm.service
-ConditionPathExists=!/run/sddm.pid
-
+    # 默认启用SDDM
+    systemctl enable sddm
+    
+    # 创建TTY自动启动Hyprland的配置
+    mkdir -p /etc/systemd/system/getty@tty1.service.d/
+    cat > /etc/systemd/system/getty@tty1.service.d/autologin.conf <<EOF
 [Service]
-Type=idle
-ExecStart=/usr/bin/systemctl start lightdm.service
-
-[Install]
-WantedBy=graphical.target
+ExecStart=
+ExecStart=-/sbin/agetty -o '-p -f -- \\u' --noclear --autologin username - \$TERM
 EOF
-
-    systemctl enable display-manager-fallback.service
     
-    # 创建恢复脚本，让用户能从黑屏中恢复
-    cat > /etc/skel/.local/bin/fix-display <<EOF
-#!/bin/bash
-echo "Display recovery tool"
-echo "====================="
-echo "1) Switch to LightDM (if SDDM is failing)"
-echo "2) Force start X11 session"
-echo "3) Reset graphics configuration"
-echo "4) Generate debug information"
-
-read -p "Enter choice [1-4]: " choice
-
-case \$choice in
-    1)
-        sudo systemctl disable sddm
-        sudo systemctl enable lightdm
-        sudo systemctl restart lightdm
-        ;;
-    2)
-        startx /usr/bin/i3
-        ;;
-    3)
-        rm -rf ~/.config/hypr
-        cp -r /etc/skel/.config/hypr ~/.config/
-        echo "Graphics configuration reset to defaults"
-        ;;
-    4)
-        echo "Generating debug information..."
-        journalctl -b -p err > ~/display-errors.log
-        dmesg > ~/dmesg.log
-        echo "Logs saved to ~/display-errors.log and ~/dmesg.log"
-        ;;
-esac
-EOF
-    chmod +x /etc/skel/.local/bin/fix-display
-    
-    log "Login manager configuration completed with fallback options"
+    log "Login manager configuration completed"
 }
 
-# 创建用户脚本
-create_user_script() {
-    log "Creating user configuration scripts..."
+# 创建自动恢复脚本
+create_recovery_script() {
+    log "Creating recovery script..."
     
     mkdir -p /etc/skel/.local/bin
     
-    # 创建Hyprland会话启动脚本
-    cat > /etc/skel/.local/bin/start-hypr <<EOF
+    cat > /etc/skel/.local/bin/hyprland-recovery <<EOF
 #!/bin/bash
+# Hyprland紧急恢复脚本
 
-# 环境变量设置
-export XDG_CURRENT_DESKTOP=Hyprland
-export XDG_SESSION_TYPE=wayland
-export XDG_SESSION_DESKTOP=Hyprland
-export QT_QPA_PLATFORM=wayland
-export QT_QPA_PLATFORMTHEME=qt5ct
-export MOZ_ENABLE_WAYLAND=1
+echo "================================================"
+echo "  Hyprland 紧急恢复工具 "
+echo "================================================"
+echo "1. 启动紧急X11会话 (i3)"
+echo "2. 重置Hyprland配置"
+echo "3. 重装显卡驱动"
+echo "4. 切换至LightDM"
+echo "5. 显示系统日志"
+echo "================================================"
 
-# 启动前检查显卡类型并设置额外变量
-if lspci | grep -i "NVIDIA" &>/dev/null; then
-    export LIBVA_DRIVER_NAME=nvidia
-    export GBM_BACKEND=nvidia-drm
-    export __GLX_VENDOR_LIBRARY_NAME=nvidia
-    export WLR_NO_HARDWARE_CURSORS=1
-fi
-
-# 添加错误处理
-if ! command -v Hyprland &>/dev/null; then
-    echo "ERROR: Hyprland not found! Falling back to i3..."
-    exec i3
-fi
-
-# 尝试启动Hyprland，如果失败则启动回退会话
-if ! Hyprland; then
-    echo "Hyprland failed to start. Falling back to i3..."
-    exec i3
-fi
-EOF
-    
-    chmod +x /etc/skel/.local/bin/start-hypr
-    
-    # 创建一个可以在TTY使用的恢复模式脚本
-    cat > /etc/skel/.local/bin/recovery-mode <<EOF
-#!/bin/bash
-echo "Hyprland Recovery Mode"
-echo "======================"
-echo "This script will help you recover from black screen or boot issues."
-echo ""
-echo "1) Start minimal X session (i3)"
-echo "2) Reinstall video drivers"
-echo "3) Reset Hyprland configuration"
-echo "4) Reset display manager to LightDM"
-echo "5) Show system logs"
-echo "0) Exit"
-
-read -p "Enter your choice: " choice
+read -p "请选择选项 [1-5]: " choice
 
 case \$choice in
     1)
-        echo "Starting minimal X session..."
+        echo "启动i3备用会话..."
         startx /usr/bin/i3
         ;;
     2)
-        echo "Choose GPU type to reinstall drivers:"
-        echo "a) NVIDIA"
-        echo "b) AMD"
-        echo "c) Intel"
-        echo "d) Generic/Fallback"
-        read -p "GPU type [a-d]: " gpu
-        
-        sudo pacman -Syy
-        
-        case \$gpu in
-            a) sudo pacman -S --noconfirm mesa xf86-video-vesa nvidia-open nvidia-utils ;;
-            b) sudo pacman -S --noconfirm mesa xf86-video-amdgpu ;;
-            c) sudo pacman -S --noconfirm mesa xf86-video-intel ;;
-            *) sudo pacman -S --noconfirm mesa xf86-video-vesa ;;
-        esac
-        echo "Drivers reinstalled. Please reboot."
+        echo "重置Hyprland配置..."
+        rm -rf ~/.config/hypr
+        cp -r /etc/skel/.config/hypr ~/.config/
+        echo "配置已重置。重启后生效。"
         ;;
     3)
-        rm -rf ~/.config/hypr
-        mkdir -p ~/.config/hypr
-        cp /etc/skel/.config/hypr/* ~/.config/hypr/
-        echo "Hyprland configuration has been reset to defaults."
+        echo "重装显卡驱动..."
+        if lspci | grep -i "NVIDIA" &>/dev/null; then
+            sudo pacman -S --noconfirm nvidia-dkms nvidia-utils
+        elif lspci | grep -i "AMD" &>/dev/null; then
+            sudo pacman -S --noconfirm mesa xf86-video-amdgpu
+        elif lspci | grep -i "Intel" &>/dev/null; then
+            sudo pacman -S --noconfirm mesa xf86-video-intel
+        else
+            sudo pacman -S --noconfirm mesa xf86-video-vesa
+        fi
+        echo "显卡驱动已重装。请重启系统。"
         ;;
     4)
+        echo "切换到LightDM..."
         sudo systemctl disable sddm
         sudo systemctl enable lightdm
-        echo "Display manager set to LightDM. Please reboot."
+        echo "已切换到LightDM。请重启系统。"
         ;;
     5)
-        echo "Last boot errors:"
-        journalctl -b -1 -p err
+        echo "系统日志:"
+        journalctl -b -p err
         echo ""
-        echo "Press Enter to continue..."
-        read
-        ;;
-    0)
-        exit 0
+        read -p "按Enter继续..."
         ;;
     *)
-        echo "Invalid option."
+        echo "无效选项"
         ;;
 esac
 EOF
-    chmod +x /etc/skel/.local/bin/recovery-mode
     
-    log "User configuration scripts created with recovery options"
+    chmod +x /etc/skel/.local/bin/hyprland-recovery
+    
+    # 创建.zprofile或.bash_profile以便在TTY登录后自动启动Hyprland
+    cat > /etc/skel/.bash_profile <<EOF
+# 自动启动Hyprland (如果在tty1且未运行X或Wayland)
+if [ -z "\$DISPLAY" ] && [ "\$(tty)" = "/dev/tty1" ]; then
+    exec Hyprland
+fi
+EOF
+    
+    log "Recovery script created"
+}
+
+# 创建TTY紧急恢复指南
+create_tty_guide() {
+    log "Creating TTY rescue guide..."
+    
+    mkdir -p /etc/skel/Documents
+    
+    cat > /etc/skel/Documents/tty-rescue-guide.txt <<EOF
+======================================================
+               Hyprland 紧急恢复指南
+======================================================
+
+如果您的系统只显示光标闪烁或黑屏，请按照以下步骤操作:
+
+1. 按 Ctrl+Alt+F2 切换到TTY2
+   (如果无效，尝试 Ctrl+Alt+F3, F4, F5...)
+
+2. 使用您的用户名和密码登录
+
+3. 运行以下命令修复系统:
+   
+   hyprland-recovery
+
+4. 选择适当的选项修复您的系统
+
+常见问题:
+
+- 如果无法访问TTY，使用安装U盘启动系统进行修复
+- NVIDIA显卡问题: 尝试在recovery中选择重装驱动
+- 登录管理器问题: 尝试切换到LightDM
+
+紧急命令:
+- startx /usr/bin/i3    (启动备用桌面)
+- sudo systemctl restart sddm    (重启登录管理器)
+- sudo pacman -S --needed xf86-video-vesa    (安装通用显卡驱动)
+
+======================================================
+EOF
+    
+    # 为所有现有用户复制恢复脚本
+    for userdir in /home/*; do
+        if [ -d "$userdir" ]; then
+            username=$(basename "$userdir")
+            if id "$username" &>/dev/null; then
+                mkdir -p "$userdir/.local/bin" "$userdir/Documents"
+                cp /etc/skel/.local/bin/hyprland-recovery "$userdir/.local/bin/"
+                cp /etc/skel/Documents/tty-rescue-guide.txt "$userdir/Documents/"
+                chown -R "$username:$username" "$userdir/.local" "$userdir/Documents"
+                chmod +x "$userdir/.local/bin/hyprland-recovery"
+            fi
+        fi
+    done
+    
+    log "TTY rescue guide created"
 }
 
 # 主函数
@@ -490,6 +563,7 @@ main() {
     clear
     echo -e "${BLUE}========================================${NC}"
     echo -e "${BLUE}    Arch Linux Hyprland Installer       ${NC}"
+    echo -e "${BLUE}      (Enhanced Recovery Edition)       ${NC}"
     echo -e "${BLUE}========================================${NC}"
     echo ""
     
@@ -498,6 +572,7 @@ main() {
     
     # 开始安装
     update_system
+    install_tools
     install_dependencies
     install_gpu_drivers
     install_hyprland
@@ -505,86 +580,21 @@ main() {
     create_configs
     create_desktop_entry
     setup_login
-    create_user_script
-    
-    # 创建一个更全面的检查脚本，帮助诊断可能的问题
-    cat > /etc/skel/.local/bin/hyprland-troubleshoot <<EOF
-#!/bin/bash
-echo "Hyprland Troubleshooting Tool"
-echo "=============================="
-
-# 收集系统信息
-echo "System information:"
-echo "-------------------"
-echo "Kernel: $(uname -r)"
-echo "Architecture: $(uname -m)"
-echo "CPU: $(grep "model name" /proc/cpuinfo | head -1 | cut -d':' -f2 | sed 's/^[ \t]*//')"
-
-echo "Checking if Hyprland is installed..."
-if command -v Hyprland &>/dev/null; then
-  echo "[OK] Hyprland is installed ($(which Hyprland))"
-else
-  echo "[ERROR] Hyprland is not installed"
-fi
-
-echo "Checking GPU information..."
-echo "--------------------------"
-lspci -k | grep -A 2 -E "(VGA|3D|Display)"
-
-echo "Checking if any GPU drivers are loaded..."
-lsmod | grep -E 'nvidia|amdgpu|i915|nouveau|radeon'
-
-echo "Checking Wayland sessions..."
-ls -la /usr/share/wayland-sessions/
-
-echo "Checking X11 sessions (fallback)..."
-ls -la /usr/share/xsessions/
-
-echo "Checking display manager status..."
-systemctl status sddm lightdm gdm | grep "Active:"
-
-echo "Checking XDG portal status..."
-systemctl --user status xdg-desktop-portal xdg-desktop-portal-hyprland 2>/dev/null || echo "XDG portal services not running"
-
-echo "Checking environment variables..."
-env | grep -E 'WAYLAND|XDG|QT|WLR|DISPLAY'
-
-echo "Boot errors (last boot):"
-journalctl -b -1 -p err | tail -20
-
-echo ""
-echo "If screen is black after login:"
-echo "1. Press Ctrl+Alt+F2 to switch to TTY2"
-echo "2. Login with your username and password"
-echo "3. Run recovery-mode to fix the issue"
-echo "4. Or try running: startx /usr/bin/i3"
-EOF
-    chmod +x /etc/skel/.local/bin/hyprland-troubleshoot
-    
-    # 为现有用户也创建恢复脚本
-    for userdir in /home/*; do
-        if [ -d "$userdir" ]; then
-            username=$(basename "$userdir")
-            if id "$username" &>/dev/null; then
-                mkdir -p "$userdir/.local/bin"
-                cp /etc/skel/.local/bin/recovery-mode "$userdir/.local/bin/"
-                cp /etc/skel/.local/bin/fix-display "$userdir/.local/bin/"
-                cp /etc/skel/.local/bin/hyprland-troubleshoot "$userdir/.local/bin/"
-                chown -R "$username:$username" "$userdir/.local"
-                chmod +x "$userdir/.local/bin/"*
-            fi
-        fi
-    done
+    create_recovery_script
+    create_tty_guide
     
     log "Hyprland installation completed!"
-    log "IMPORTANT: If you encounter a black screen or just a cursor after login:"
-    log "1. Press Ctrl+Alt+F2 to switch to TTY"
-    log "2. Login with your username and password"
-    log "3. Run 'recovery-mode' and choose an option to fix the issue"
+    log "IMPORTANT: Read carefully for black screen/cursor issues:"
     log ""
-    log "After reboot, select 'Hyprland' from the session menu in SDDM"
-    log "If you can't see SDDM, the system will automatically try LightDM instead"
-    log "For existing users, recovery tools are installed in ~/.local/bin/"
+    log "1. If you see only a cursor after login:"
+    log "   - Press Ctrl+Alt+F2 to access TTY"
+    log "   - Login with your username and password"
+    log "   - Run 'hyprland-recovery' and select an option"
+    log ""
+    log "2. A rescue guide is available in ~/Documents/tty-rescue-guide.txt"
+    log ""
+    log "3. After reboot, select 'Hyprland' from the login screen"
+    log ""
     
     # 询问是否重启
     read -p "Would you like to reboot now? (y/n) " reboot_now
