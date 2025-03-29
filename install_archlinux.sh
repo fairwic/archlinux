@@ -39,7 +39,7 @@ update_mirrorlist() {
     # Use reflector to select fastest mirrors with timeout
     if command -v reflector &>/dev/null; then
         log "INFO" "Using reflector to update mirrors (timeout: 30s)..."
-        if ! timeout 30 reflector --country China --age 12 --protocol https --sort rate --save /etc/pacman.d/mirrorlist; then
+        if ! timeout 3 reflector --country China --age 12 --protocol https --sort rate --save /etc/pacman.d/mirrorlist; then
             log "WARNING" "Reflector timed out or failed, using default mirrors"
         fi
     else
