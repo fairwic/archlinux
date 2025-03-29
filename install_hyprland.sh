@@ -234,11 +234,101 @@ create_configs() {
     # 如果遇到配置错误，请参考Hyprland最新文档：https://wiki.hyprland.org/
     
     # 创建Hyprland配置文件
+    cat > /etc/skel/.config/hypr/keybinds.conf <<EOF
+# 防止单个字符触发命令
+# 确保所有快捷键都要求修饰键
+general {
+    # 禁用单字符输入作为快捷键
+    allow_single_letter_shortcuts = false
+}
+
+# 更精确地设置键绑定
+\$mainMod = SUPER
+
+# 应用程序快捷键
+bind = \$mainMod, RETURN, exec, kitty
+bind = \$mainMod, Q, killactive, 
+bind = \$mainMod, M, exit, 
+bind = \$mainMod, E, exec, thunar
+bind = \$mainMod, V, togglefloating, 
+bind = \$mainMod, D, exec, wofi --show drun
+bind = \$mainMod, P, pseudo,
+bind = \$mainMod, J, togglesplit,
+
+# 紧急热键
+bind = CTRL ALT, DELETE, exec, hyprctl dispatch exit
+bind = CTRL ALT, T, exec, kitty
+
+# 移动焦点
+bind = \$mainMod, left, movefocus, l
+bind = \$mainMod, right, movefocus, r
+bind = \$mainMod, up, movefocus, u
+bind = \$mainMod, down, movefocus, d
+
+# 切换工作区
+bind = \$mainMod, 1, workspace, 1
+bind = \$mainMod, 2, workspace, 2
+bind = \$mainMod, 3, workspace, 3
+bind = \$mainMod, 4, workspace, 4
+bind = \$mainMod, 5, workspace, 5
+bind = \$mainMod, 6, workspace, 6
+bind = \$mainMod, 7, workspace, 7
+bind = \$mainMod, 8, workspace, 8
+bind = \$mainMod, 9, workspace, 9
+bind = \$mainMod, 0, workspace, 10
+
+# 移动窗口到工作区
+bind = \$mainMod SHIFT, 1, movetoworkspace, 1
+bind = \$mainMod SHIFT, 2, movetoworkspace, 2
+bind = \$mainMod SHIFT, 3, movetoworkspace, 3
+bind = \$mainMod SHIFT, 4, movetoworkspace, 4
+bind = \$mainMod SHIFT, 5, movetoworkspace, 5
+bind = \$mainMod SHIFT, 6, movetoworkspace, 6
+bind = \$mainMod SHIFT, 7, movetoworkspace, 7
+bind = \$mainMod SHIFT, 8, movetoworkspace, 8
+bind = \$mainMod SHIFT, 9, movetoworkspace, 9
+bind = \$mainMod SHIFT, 0, movetoworkspace, 10
+
+# 截图
+bind = \$mainMod, S, exec, grim -g "\$(slurp)" - | wl-copy
+bind = \$mainMod SHIFT, S, exec, grim -g "\$(slurp)" ~/Pictures/Screenshots/\$(date +'%Y%m%d%H%M%S').png
+
+# 调整亮度和音量
+bind = , XF86AudioRaiseVolume, exec, wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ 5%+
+bind = , XF86AudioLowerVolume, exec, wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
+bind = , XF86AudioMute, exec, wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
+bind = , XF86MonBrightnessUp, exec, brightnessctl set +5%
+bind = , XF86MonBrightnessDown, exec, brightnessctl set 5%-
+EOF
+
+    # 为NVIDIA用户创建一个空的配置文件
+    # 如果没有安装NVIDIA驱动，这个文件仍然存在但为空，避免出错
+    cat > /etc/skel/.config/hypr/nvidia.conf <<EOF
+# 如果您有NVIDIA GPU并安装了驱动，请取消注释以下行
+# env = LIBVA_DRIVER_NAME,nvidia
+# env = XDG_SESSION_TYPE,wayland
+# env = GBM_BACKEND,nvidia-drm
+# env = __GLX_VENDOR_LIBRARY_NAME,nvidia
+# env = WLR_NO_HARDWARE_CURSORS,1
+EOF
+
+    # 创建环境变量配置
+    cat > /etc/skel/.config/hypr/hyprland_env.conf <<EOF
+# Hyprland环境变量配置
+env = XCURSOR_SIZE,24
+env = QT_QPA_PLATFORMTHEME,qt5ct
+env = QT_QPA_PLATFORM,wayland
+env = QT_WAYLAND_DISABLE_WINDOWDECORATION,1
+env = GDK_BACKEND,wayland,x11
+EOF
+
+    # 在hyprland.conf中引入keybinds.conf
     cat > /etc/skel/.config/hypr/hyprland.conf <<EOF
 # Hyprland基础配置文件
 
-# 如果NVIDIA配置存在，则引入它
+# 源文件引入
 source = ~/.config/hypr/nvidia.conf
+source = ~/.config/hypr/keybinds.conf
 
 # 显示器配置
 monitor=,preferred,auto,1
@@ -257,6 +347,11 @@ input {
         natural_scroll = true
         tap-to-click = true
     }
+    # 添加键盘设置，防止误触发
+    kb_options = terminate:ctrl_alt_bksp
+    # 防止单字符快捷键
+    repeat_rate = 25
+    repeat_delay = 600
 }
 
 # 界面美化
@@ -267,6 +362,8 @@ general {
     col.active_border = rgba(33ccffee)
     col.inactive_border = rgba(595959aa)
     layout = dwindle
+    # 禁用单字符快捷键，要求修饰键
+    allow_tearing = false
 }
 
 # 窗口装饰
@@ -299,83 +396,15 @@ dwindle {
     preserve_split = true
 }
 
-# 按键绑定
-$mainMod = SUPER
-
-bind = $mainMod, Return, exec, kitty
-bind = $mainMod, Q, killactive, 
-bind = $mainMod, M, exit, 
-bind = $mainMod, E, exec, thunar
-bind = $mainMod, V, togglefloating, 
-bind = $mainMod, D, exec, wofi --show drun
-bind = $mainMod, P, pseudo,
-bind = $mainMod, J, togglesplit,
-
-# 紧急热键
-bind = CTRL ALT, Delete, exec, hyprctl dispatch exit
-bind = CTRL ALT, T, exec, kitty
-
-# 移动焦点
-bind = $mainMod, left, movefocus, l
-bind = $mainMod, right, movefocus, r
-bind = $mainMod, up, movefocus, u
-bind = $mainMod, down, movefocus, d
-
-# 切换工作区
-bind = $mainMod, 1, workspace, 1
-bind = $mainMod, 2, workspace, 2
-bind = $mainMod, 3, workspace, 3
-bind = $mainMod, 4, workspace, 4
-bind = $mainMod, 5, workspace, 5
-bind = $mainMod, 6, workspace, 6
-bind = $mainMod, 7, workspace, 7
-bind = $mainMod, 8, workspace, 8
-bind = $mainMod, 9, workspace, 9
-bind = $mainMod, 0, workspace, 10
-
-# 移动窗口到工作区
-bind = $mainMod SHIFT, 1, movetoworkspace, 1
-bind = $mainMod SHIFT, 2, movetoworkspace, 2
-bind = $mainMod SHIFT, 3, movetoworkspace, 3
-bind = $mainMod SHIFT, 4, movetoworkspace, 4
-bind = $mainMod SHIFT, 5, movetoworkspace, 5
-bind = $mainMod SHIFT, 6, movetoworkspace, 6
-bind = $mainMod SHIFT, 7, movetoworkspace, 7
-bind = $mainMod SHIFT, 8, movetoworkspace, 8
-bind = $mainMod SHIFT, 9, movetoworkspace, 9
-bind = $mainMod SHIFT, 0, movetoworkspace, 10
-
-# 截图
-bind = $mainMod, S, exec, grim -g "$(slurp)" - | wl-copy
-bind = $mainMod SHIFT, S, exec, grim -g "$(slurp)" ~/Pictures/Screenshots/$(date +'%Y%m%d%H%M%S').png
-
-# 调整亮度和音量
-bind = , XF86AudioRaiseVolume, exec, wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ 5%+
-bind = , XF86AudioLowerVolume, exec, wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
-bind = , XF86AudioMute, exec, wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
-bind = , XF86MonBrightnessUp, exec, brightnessctl set +5%
-bind = , XF86MonBrightnessDown, exec, brightnessctl set 5%-
-EOF
-
-    # 为NVIDIA用户创建一个空的配置文件
-    # 如果没有安装NVIDIA驱动，这个文件仍然存在但为空，避免出错
-    cat > /etc/skel/.config/hypr/nvidia.conf <<EOF
-# 如果您有NVIDIA GPU并安装了驱动，请取消注释以下行
-# env = LIBVA_DRIVER_NAME,nvidia
-# env = XDG_SESSION_TYPE,wayland
-# env = GBM_BACKEND,nvidia-drm
-# env = __GLX_VENDOR_LIBRARY_NAME,nvidia
-# env = WLR_NO_HARDWARE_CURSORS,1
-EOF
-
-    # 创建环境变量配置
-    cat > /etc/skel/.config/hypr/hyprland_env.conf <<EOF
-# Hyprland环境变量配置
-env = XCURSOR_SIZE,24
-env = QT_QPA_PLATFORMTHEME,qt5ct
-env = QT_QPA_PLATFORM,wayland
-env = QT_WAYLAND_DISABLE_WINDOWDECORATION,1
-env = GDK_BACKEND,wayland,x11
+# 杂项设置
+misc {
+    disable_hyprland_logo = true
+    disable_splash_rendering = true
+    mouse_move_enables_dpms = true
+    key_press_enables_dpms = true
+    # 防止单字符快捷键
+    allow_chording = false
+}
 EOF
 
     log "Base configuration files created"
