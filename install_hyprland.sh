@@ -230,6 +230,9 @@ create_configs() {
     # 创建配置目录
     mkdir -p /etc/skel/.config/hypr
     
+    # 注意：Hyprland配置语法可能随版本变化，以下配置适用于最新版
+    # 如果遇到配置错误，请参考Hyprland最新文档：https://wiki.hyprland.org/
+    
     # 创建Hyprland配置文件
     cat > /etc/skel/.config/hypr/hyprland.conf <<EOF
 # Hyprland基础配置文件
@@ -269,19 +272,20 @@ general {
 # 窗口装饰
 decoration {
     rounding = 10
-    blur {
-        enabled = true
-        size = 3
-        passes = 1
-    }
-    drop_shadow = yes
+    blur = true
+    blur_size = 3
+    blur_passes = 1
+    blur_new_optimizations = true
+    
+    drop_shadow = true
     shadow_range = 4
     shadow_render_power = 3
+    col.shadow = rgba(1a1a1aee)
 }
 
 # 动画
 animations {
-    enabled = yes
+    enabled = true
     bezier = myBezier, 0.05, 0.9, 0.1, 1.05
     animation = windows, 1, 7, myBezier
     animation = windowsOut, 1, 7, default, popin 80%
@@ -291,8 +295,8 @@ animations {
 
 # 窗口规则
 dwindle {
-    pseudotile = yes
-    preserve_split = yes
+    pseudotile = true
+    preserve_split = true
 }
 
 # 按键绑定
@@ -375,6 +379,18 @@ env = GDK_BACKEND,wayland,x11
 EOF
 
     log "Base configuration files created"
+
+    # 为现有用户也复制配置文件
+    for userdir in /home/*; do
+        if [ -d "$userdir" ]; then
+            username=$(basename "$userdir")
+            if id "$username" &>/dev/null; then
+                mkdir -p "$userdir/.config/hypr"
+                cp -r /etc/skel/.config/hypr/* "$userdir/.config/hypr/"
+                chown -R "$username:$username" "$userdir/.config"
+            fi
+        fi
+    done
 }
 
 # 创建桌面入口文件
