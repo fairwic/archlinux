@@ -17,31 +17,31 @@ log() {
 }
 
 error() {
-    echo -e "${RED}[错误] $1${NC}" >&2
+    echo -e "${RED}[ERROR] $1${NC}" >&2
     exit 1
 }
 
 warn() {
-    echo -e "${YELLOW}[警告] $1${NC}"
+    echo -e "${YELLOW}[WARNING] $1${NC}"
 }
 
 # 检查root权限
 check_root() {
     if [ "$(id -u)" -ne 0 ]; then
-        error "请使用root权限运行此脚本，例如: sudo $0"
+        error "Please run this script with root privileges, e.g.: sudo $0"
     fi
 }
 
 # 更新系统
 update_system() {
-    log "正在更新系统..."
-    pacman -Syu --noconfirm || error "系统更新失败"
-    log "系统更新完成"
+    log "Updating system..."
+    pacman -Syu --noconfirm || error "System update failed"
+    log "System update completed"
 }
 
 # 安装基础依赖
 install_dependencies() {
-    log "正在安装基础依赖..."
+    log "Installing base dependencies..."
     pacman -S --noconfirm \
         wayland \
         xorg-xwayland \
@@ -51,20 +51,48 @@ install_dependencies() {
         pipewire-pulse \
         wireplumber \
         polkit-kde-agent \
-        || error "安装依赖失败"
-    log "基础依赖安装完成"
+        xdg-desktop-portal-hyprland \
+        xdg-desktop-portal \
+        xdg-desktop-portal-wlr \
+        || error "Failed to install dependencies"
+    log "Base dependencies installation completed"
+}
+
+# 安装显卡驱动
+install_gpu_drivers() {
+    log "Detecting and installing GPU drivers..."
+    
+    # 检测显卡类型
+    if lspci | grep -i "NVIDIA" &>/dev/null; then
+        log "NVIDIA GPU detected, installing drivers..."
+        pacman -S --noconfirm nvidia nvidia-utils libva libva-nvidia-driver
+    elif lspci | grep -i "AMD" &>/dev/null; then
+        log "AMD GPU detected, installing drivers..."
+        pacman -S --noconfirm mesa lib32-mesa xf86-video-amdgpu libva-mesa-driver
+    elif lspci | grep -i "Intel" &>/dev/null; then
+        log "Intel GPU detected, installing drivers..."
+        pacman -S --noconfirm mesa lib32-mesa vulkan-intel intel-media-driver
+    else
+        log "No specific GPU detected, installing generic drivers..."
+        pacman -S --noconfirm mesa
+    fi
+    
+    # 安装硬件视频加速支持
+    pacman -S --noconfirm libva-utils
+    
+    log "GPU drivers installation completed"
 }
 
 # 安装Hyprland
 install_hyprland() {
-    log "正在安装Hyprland窗口管理器..."
-    pacman -S --noconfirm hyprland || error "Hyprland安装失败"
-    log "Hyprland安装完成"
+    log "Installing Hyprland window manager..."
+    pacman -S --noconfirm hyprland || error "Hyprland installation failed"
+    log "Hyprland installation completed"
 }
 
 # 安装配套应用程序
 install_apps() {
-    log "正在安装配套应用程序..."
+    log "Installing companion applications..."
     pacman -S --noconfirm \
         kitty \
         wofi \
@@ -76,13 +104,13 @@ install_apps() {
         swaylock \
         swayidle \
         wl-clipboard \
-        || error "配套应用程序安装失败"
-    log "配套应用程序安装完成"
+        || error "Companion applications installation failed"
+    log "Companion applications installation completed"
 }
 
 # 创建基础配置
 create_configs() {
-    log "正在创建基础配置..."
+    log "Creating base configuration..."
     
     # 创建配置目录
     mkdir -p /etc/skel/.config/hypr
@@ -189,25 +217,58 @@ bind = $mainMod SHIFT, 0, movetoworkspace, 10
 bind = $mainMod, S, exec, grim -g "$(slurp)" - | wl-copy
 EOF
 
-    log "已创建基础配置文件"
+    log "Base configuration files created"
+}
+
+# 创建桌面入口文件
+create_desktop_entry() {
+    log "Creating Hyprland desktop entry file..."
+    
+    # 创建目录
+    mkdir -p /usr/share/wayland-sessions
+    
+    # 创建桌面入口文件
+    cat > /usr/share/wayland-sessions/hyprland.desktop <<EOF
+[Desktop Entry]
+Name=Hyprland
+Comment=A dynamic tiling Wayland compositor
+Exec=/usr/bin/Hyprland
+Type=Application
+EOF
+    
+    log "Desktop entry file created"
 }
 
 # 配置登录管理器
 setup_login() {
-    log "正在配置登录管理器..."
+    log "Configuring login manager..."
     
     # 安装SDDM
-    pacman -S --noconfirm sddm || error "SDDM安装失败"
+    pacman -S --noconfirm sddm qt5-graphicaleffects qt5-quickcontrols2 || error "SDDM installation failed"
     
+    # 创建SDDM配置目录
+    mkdir -p /etc/sddm.conf.d
+    
+    # 创建SDDM配置文件
+    cat > /etc/sddm.conf.d/10-wayland.conf <<EOF
+[General]
+DisplayServer=wayland
+GreeterEnvironment=QT_WAYLAND_SHELL_INTEGRATION=layer-shell
+
+[Wayland]
+EnableHiDPI=true
+SessionDir=/usr/share/wayland-sessions
+EOF
+
     # 启用SDDM服务
     systemctl enable sddm.service
     
-    log "登录管理器配置完成"
+    log "Login manager configuration completed"
 }
 
 # 创建用户脚本
 create_user_script() {
-    log "正在创建用户配置脚本..."
+    log "Creating user configuration scripts..."
     
     mkdir -p /etc/skel/.local/bin
     
@@ -228,14 +289,14 @@ EOF
     
     chmod +x /etc/skel/.local/bin/start-hypr
     
-    log "用户配置脚本创建完成"
+    log "User configuration scripts created"
 }
 
 # 主函数
 main() {
     clear
     echo -e "${BLUE}========================================${NC}"
-    echo -e "${BLUE}    Arch Linux Hyprland 安装脚本        ${NC}"
+    echo -e "${BLUE}    Arch Linux Hyprland Installer       ${NC}"
     echo -e "${BLUE}========================================${NC}"
     echo ""
     
@@ -245,23 +306,54 @@ main() {
     # 开始安装
     update_system
     install_dependencies
+    install_gpu_drivers
     install_hyprland
     install_apps
     create_configs
+    create_desktop_entry
     setup_login
     create_user_script
     
-    log "Hyprland安装完成！"
-    log "重启后使用SDDM登录到Hyprland会话"
-    log "如果你正在为新用户安装，配置文件将自动复制到新用户目录"
-    log "如果你需要为现有用户安装，请复制配置文件："
+    # 创建一个检查脚本，帮助诊断可能的问题
+    cat > /etc/skel/.local/bin/hyprland-troubleshoot <<EOF
+#!/bin/bash
+echo "Hyprland Troubleshooting Tool"
+echo "=============================="
+echo "Checking if Hyprland is installed..."
+if command -v Hyprland &>/dev/null; then
+  echo "[OK] Hyprland is installed"
+else
+  echo "[ERROR] Hyprland is not installed"
+fi
+
+echo "Checking GPU drivers..."
+lspci -k | grep -A 2 -E "(VGA|3D)"
+
+echo "Checking Wayland sessions..."
+ls -la /usr/share/wayland-sessions/
+
+echo "Checking XDG portal status..."
+systemctl --user status xdg-desktop-portal xdg-desktop-portal-hyprland --no-pager
+
+echo "Checking environment variables..."
+env | grep -E 'WAYLAND|XDG|QT|WLR'
+
+echo "You can run 'Hyprland' in a TTY to see if there are any error messages"
+EOF
+    chmod +x /etc/skel/.local/bin/hyprland-troubleshoot
+    
+    log "Hyprland installation completed!"
+    log "After reboot, use SDDM to log into Hyprland session"
+    log "If you're installing for new users, configuration files will be automatically copied to new user directories"
+    log "If you need to install for existing users, please copy the configuration files:"
     log "sudo cp -r /etc/skel/.config/hypr ~/.config/"
     log "sudo cp -r /etc/skel/.local/bin ~/.local/"
+    log "If you encounter issues, run the troubleshooting script: ~/.local/bin/hyprland-troubleshoot"
     
     # 询问是否重启
-    read -p "是否立即重启系统？(y/n) " reboot_now
+    read -p "Would you like to reboot now? (y/n) " reboot_now
     if [[ "$reboot_now" =~ ^[Yy]$ ]]; then
-        log "系统将在 5 秒后重启..."
+        log "System will reboot in 5 seconds..."
         sleep 5
         reboot
     fi
