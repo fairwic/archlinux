@@ -77,41 +77,51 @@ install_dependencies() {
         grim \
         slurp \
         || error "Failed to install dependencies"
+    
+    # 安装最基本的显卡支持，这是必需的
+    log "Installing basic graphics support (mesa)..."
+    pacman -S --noconfirm --needed mesa xf86-video-vesa || warn "Basic graphics driver installation failed, continuing anyway"
+    
     log "Base dependencies installation completed"
 }
 
-# 安装显卡驱动
+# 安装显卡驱动（可选）
 install_gpu_drivers() {
-    log "Detecting and installing GPU drivers..."
+    echo "Graphics driver installation:"
+    echo "1) Install only basic/generic drivers (recommended)"
+    echo "2) Detect and install specific GPU drivers"
+    echo "3) Skip all graphics drivers (not recommended)"
+    read -p "Enter your choice [1-3] (default: 1): " gpu_choice
     
-    # 始终安装基础驱动确保系统可用
-    pacman -S --noconfirm --needed mesa xf86-video-vesa
-
-    # 检测显卡类型
-    if lspci | grep -i "NVIDIA" &>/dev/null; then
-        log "NVIDIA GPU detected, installing drivers..."
-        
-        echo "NVIDIA GPU detected. Please select driver type:"
-        echo "1) Proprietary NVIDIA drivers (best performance)"
-        echo "2) Open source Nouveau drivers (better compatibility)"
-        echo "3) Skip NVIDIA specific drivers (use generic drivers)"
-        read -p "Enter your choice [1-3]: " nvidia_choice
-        
-        case "$nvidia_choice" in
-            1)
-                log "Installing proprietary NVIDIA drivers..."
-                # 安装NVIDIA驱动和必要组件
-                pacman -S --noconfirm --needed \
-                    nvidia-dkms \
-                    nvidia-utils \
-                    lib32-nvidia-utils \
-                    libva \
-                    libva-nvidia-driver \
-                    nvidia-settings
+    case "$gpu_choice" in
+        2)
+            log "Detecting GPU type for driver installation..."
+            
+            # 检测显卡类型
+            if lspci | grep -i "NVIDIA" &>/dev/null; then
+                log "NVIDIA GPU detected, installing drivers..."
                 
-                # 创建Hyprland的NVIDIA配置
-                mkdir -p /etc/hypr
-                cat > /etc/hypr/nvidia.conf <<EOF
+                echo "NVIDIA GPU detected. Please select driver type:"
+                echo "1) Proprietary NVIDIA drivers (best performance)"
+                echo "2) Open source Nouveau drivers (better compatibility)"
+                echo "3) Skip NVIDIA specific drivers (use generic drivers)"
+                read -p "Enter your choice [1-3]: " nvidia_choice
+                
+                case "$nvidia_choice" in
+                    1)
+                        log "Installing proprietary NVIDIA drivers..."
+                        # 安装NVIDIA驱动和必要组件
+                        pacman -S --noconfirm --needed \
+                            nvidia-dkms \
+                            nvidia-utils \
+                            lib32-nvidia-utils \
+                            libva \
+                            libva-nvidia-driver \
+                            nvidia-settings
+                        
+                        # 创建Hyprland的NVIDIA配置
+                        mkdir -p /etc/hypr
+                        cat > /etc/hypr/nvidia.conf <<EOF
 # 为Hyprland创建的NVIDIA配置
 env = LIBVA_DRIVER_NAME,nvidia
 env = XDG_SESSION_TYPE,wayland
@@ -120,51 +130,54 @@ env = __GLX_VENDOR_LIBRARY_NAME,nvidia
 env = WLR_NO_HARDWARE_CURSORS,1
 EOF
 
-                # 创建模块加载配置
-                mkdir -p /etc/modprobe.d
-                cat > /etc/modprobe.d/nvidia.conf <<EOF
+                        # 创建模块加载配置
+                        mkdir -p /etc/modprobe.d
+                        cat > /etc/modprobe.d/nvidia.conf <<EOF
 options nvidia-drm modeset=1
 options nvidia NVreg_PreserveVideoMemoryAllocations=1
 EOF
-                ;;
-            2)
-                log "Installing open source Nouveau drivers..."
-                pacman -S --noconfirm --needed mesa lib32-mesa xf86-video-nouveau
-                ;;
-            3)
-                log "Skipping NVIDIA specific drivers..."
-                ;;
-        esac
-    elif lspci | grep -i "AMD" &>/dev/null; then
-        log "AMD GPU detected, installing drivers..."
-        pacman -S --noconfirm --needed \
-            mesa \
-            lib32-mesa \
-            xf86-video-amdgpu \
-            vulkan-radeon \
-            lib32-vulkan-radeon \
-            libva-mesa-driver \
-            lib32-libva-mesa-driver
-    elif lspci | grep -i "Intel" &>/dev/null; then
-        log "Intel GPU detected, installing drivers..."
-        pacman -S --noconfirm --needed \
-            mesa \
-            lib32-mesa \
-            vulkan-intel \
-            intel-media-driver
-    else
-        log "No specific GPU detected, installing generic drivers..."
-        pacman -S --noconfirm --needed mesa xf86-video-fbdev
-    fi
+                        ;;
+                    2)
+                        log "Installing open source Nouveau drivers..."
+                        pacman -S --noconfirm --needed mesa lib32-mesa xf86-video-nouveau
+                        ;;
+                    3)
+                        log "Skipping NVIDIA specific drivers..."
+                        ;;
+                esac
+            elif lspci | grep -i "AMD" &>/dev/null; then
+                log "AMD GPU detected, installing drivers..."
+                pacman -S --noconfirm --needed \
+                    mesa \
+                    lib32-mesa \
+                    xf86-video-amdgpu \
+                    vulkan-radeon \
+                    lib32-vulkan-radeon \
+                    libva-mesa-driver \
+                    lib32-libva-mesa-driver
+            elif lspci | grep -i "Intel" &>/dev/null; then
+                log "Intel GPU detected, installing drivers..."
+                pacman -S --noconfirm --needed \
+                    mesa \
+                    lib32-mesa \
+                    vulkan-intel \
+                    intel-media-driver
+            else
+                log "No specific GPU detected, installing generic drivers..."
+                pacman -S --noconfirm --needed mesa xf86-video-fbdev
+            fi
+            ;;
+        3)
+            warn "Skipping all graphics drivers. Hyprland may not work correctly without basic graphics support."
+            ;;
+        *)
+            # 默认情况: 只安装基本驱动
+            log "Installing only basic/generic graphics drivers..."
+            pacman -S --noconfirm --needed mesa xf86-video-fbdev
+            ;;
+    esac
     
-    # 安装硬件视频加速支持
-    pacman -S --noconfirm --needed \
-        libva-utils \
-        vulkan-tools \
-        vulkan-icd-loader \
-        lib32-vulkan-icd-loader
-    
-    log "GPU drivers installation completed"
+    log "Graphics driver setup completed"
 }
 
 # 安装Hyprland
@@ -221,8 +234,8 @@ create_configs() {
     cat > /etc/skel/.config/hypr/hyprland.conf <<EOF
 # Hyprland基础配置文件
 
-# 源文件引入
-source = /etc/hypr/nvidia.conf
+# 如果NVIDIA配置存在，则引入它
+source = ~/.config/hypr/nvidia.conf
 
 # 显示器配置
 monitor=,preferred,auto,1
@@ -338,6 +351,17 @@ bind = , XF86AudioLowerVolume, exec, wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
 bind = , XF86AudioMute, exec, wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
 bind = , XF86MonBrightnessUp, exec, brightnessctl set +5%
 bind = , XF86MonBrightnessDown, exec, brightnessctl set 5%-
+EOF
+
+    # 为NVIDIA用户创建一个空的配置文件
+    # 如果没有安装NVIDIA驱动，这个文件仍然存在但为空，避免出错
+    cat > /etc/skel/.config/hypr/nvidia.conf <<EOF
+# 如果您有NVIDIA GPU并安装了驱动，请取消注释以下行
+# env = LIBVA_DRIVER_NAME,nvidia
+# env = XDG_SESSION_TYPE,wayland
+# env = GBM_BACKEND,nvidia-drm
+# env = __GLX_VENDOR_LIBRARY_NAME,nvidia
+# env = WLR_NO_HARDWARE_CURSORS,1
 EOF
 
     # 创建环境变量配置
@@ -461,15 +485,18 @@ case \$choice in
         ;;
     3)
         echo "重装显卡驱动..."
-        if lspci | grep -i "NVIDIA" &>/dev/null; then
-            sudo pacman -S --noconfirm nvidia-dkms nvidia-utils
-        elif lspci | grep -i "AMD" &>/dev/null; then
-            sudo pacman -S --noconfirm mesa xf86-video-amdgpu
-        elif lspci | grep -i "Intel" &>/dev/null; then
-            sudo pacman -S --noconfirm mesa xf86-video-intel
-        else
-            sudo pacman -S --noconfirm mesa xf86-video-vesa
-        fi
+        echo "1) 只安装基本驱动 (mesa)"
+        echo "2) 安装NVIDIA驱动"
+        echo "3) 安装AMD驱动"
+        echo "4) 安装Intel驱动"
+        read -p "选择驱动类型 [1-4]: " driver_type
+        case \$driver_type in
+            1) sudo pacman -S --noconfirm mesa xf86-video-vesa ;;
+            2) sudo pacman -S --noconfirm nvidia-dkms nvidia-utils ;;
+            3) sudo pacman -S --noconfirm mesa xf86-video-amdgpu ;;
+            4) sudo pacman -S --noconfirm mesa xf86-video-intel ;;
+            *) sudo pacman -S --noconfirm mesa xf86-video-vesa ;;
+        esac
         echo "显卡驱动已重装。请重启系统。"
         ;;
     4)
@@ -529,8 +556,8 @@ create_tty_guide() {
 
 常见问题:
 
+- 如果未安装显卡驱动，选择选项3安装基本驱动(mesa)
 - 如果无法访问TTY，使用安装U盘启动系统进行修复
-- NVIDIA显卡问题: 尝试在recovery中选择重装驱动
 - 登录管理器问题: 尝试切换到LightDM
 
 紧急命令:
@@ -574,7 +601,18 @@ main() {
     update_system
     install_tools
     install_dependencies
-    install_gpu_drivers
+    
+    # 询问是否安装显卡驱动
+    echo ""
+    echo "Hyprland needs basic graphics support, but specialized drivers are optional."
+    read -p "Do you want to install graphics drivers? (y/n) [default: n]: " install_drivers
+    
+    if [[ "$install_drivers" =~ ^[Yy]$ ]]; then
+        install_gpu_drivers
+    else
+        log "Skipping dedicated GPU driver installation (using only basic Mesa support)"
+    fi
+    
     install_hyprland
     install_apps
     create_configs
