@@ -42,11 +42,22 @@ install_timeshift() {
         # Install build tools
         pacman -S --needed --noconfirm base-devel git
         
+        # Create a non-root build user if it doesn't exist
+        if ! id -u builduser &>/dev/null; then
+            useradd -m builduser
+        fi
+        
         # Create temporary directory and clone yay
         temp_dir=$(mktemp -d)
+        chown -R builduser:builduser "$temp_dir"
+        
+        # Clone yay repository
         git clone https://aur.archlinux.org/yay.git "$temp_dir/yay"
+        chown -R builduser:builduser "$temp_dir/yay"
+        
+        # Run makepkg as builduser
         cd "$temp_dir/yay"
-        makepkg -si --noconfirm
+        sudo -u builduser bash -c 'makepkg -si --noconfirm'
         cd - > /dev/null
         rm -rf "$temp_dir"
         
@@ -55,8 +66,13 @@ install_timeshift() {
         fi
     fi
     
-    # Use yay to install timeshift
-    sudo -u nobody yay -S --noconfirm timeshift || error "Failed to install Timeshift"
+    # Use yay to install timeshift (as a non-root user)
+    if id -u builduser &>/dev/null; then
+        sudo -u builduser yay -S --noconfirm timeshift || error "Failed to install Timeshift"
+    else
+        # Fallback to nobody user if builduser doesn't exist
+        sudo -u nobody yay -S --noconfirm timeshift || error "Failed to install Timeshift"
+    fi
     
     log "Timeshift installation completed"
 }
