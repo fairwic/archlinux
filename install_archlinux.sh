@@ -80,14 +80,9 @@ update_mirrorlist() {
         error_handler ${LINENO} 1 "Failed to backup mirror list"
     fi
     
-    # Update mirror database
-    if ! pacman -Sy --noconfirm archlinux-keyring; then
-        error_handler ${LINENO} 1 "Failed to update archlinux-keyring"
-    fi
-    
-    # Use reflector to select fastest mirrors, but only add to the beginning of the file
+    # First use reflector to select fastest mirrors, then update from those mirrors
     if command -v reflector &>/dev/null; then
-        log "INFO" "Using reflector to update mirrors (timeout: 30s)..."
+        log "INFO" "Using reflector to find fastest mirrors (timeout: 30s)..."
         
         # Create temporary file to store new mirrors
         TEMP_MIRROR_FILE=$(mktemp)
@@ -114,6 +109,13 @@ update_mirrorlist() {
     else
         log "WARNING" "Reflector not installed, using default mirrors"
     fi
+    
+    # Now update from the optimized mirror list
+    log "INFO" "Updating package database and keyrings..."
+    if ! pacman -Sy --noconfirm archlinux-keyring; then
+        error_handler ${LINENO} 1 "Failed to update archlinux-keyring"
+    fi
+    log "INFO" "Package database and keyrings updated successfully"
 }
 
 # Log function
